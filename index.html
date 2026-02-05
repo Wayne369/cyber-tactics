@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>四國戰棋：戰術指南詳解版</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Import Map -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.263.1"
+      }
+    }
+    </script>
+
+    <style>
+        body { background-color: #020617; color: white; overflow: hidden; touch-action: manipulation; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(51, 65, 85, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import { Sword, Eye, Castle, Zap, Heart, Shield, Footprints, X, Cpu, Sparkles, ScrollText, Play, RotateCcw, ChevronLeft, User, AlertTriangle, Flame, Plus, Volume2, VolumeX, Skull, Ghost, VenetianMask, Info, Target, Timer } from 'lucide-react';
+
+        // --- Gemini API 設定 ---
+        const GEMINI_API_KEY = ""; 
+        const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${GEMINI_API_KEY}`;
+
+        // --- 音效系統 ---
+        const audioCtx = typeof window !== 'undefined' ? new (window.AudioContext || window.webkitAudioContext)() : null;
+
+        const playSound = (type) => {
+          if (!audioCtx || audioCtx.state === 'suspended') audioCtx?.resume();
+          if (!audioCtx) return;
+
+          const osc = audioCtx.createOscillator();
+          const gainNode = audioCtx.createGain();
+          osc.connect(gainNode);
+          gainNode.connect(audioCtx.destination);
+
+          const now = audioCtx.currentTime;
+
+          switch (type) {
+            case 'move':
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(300, now);
+              osc.frequency.exponentialRampToValueAtTime(50, now + 0.15);
+              gainNode.gain.setValueAtTime(0.2, now);
+              gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+              osc.start(now);
+              osc.stop(now + 0.15);
+              break;
+            case 'attack':
+              osc.type = 'sawtooth';
+              osc.frequency.setValueAtTime(150, now);
+              osc.frequency.exponentialRampToValueAtTime(40, now + 0.2);
+              gainNode.gain.setValueAtTime(0.2, now);
+              gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+              osc.start(now);
+              osc.stop(now + 0.2);
+              break;
+            case 'stealth':
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(1200, now);
+              osc.frequency.linearRampToValueAtTime(400, now + 0.4);
+              gainNode.gain.setValueAtTime(0, now);
+              gainNode.gain.linearRampToValueAtTime(0.1, now + 0.1);
+              gainNode.gain.linearRampToValueAtTime(0, now + 0.4);
+              osc.start(now);
+              osc.stop(now + 0.4);
+              break;
+            case 'respawn':
+              osc.type = 'triangle';
+              osc.frequency.setValueAtTime(200, now);
+              osc.frequency.linearRampToValueAtTime(800, now + 0.5);
+              gainNode.gain.setValueAtTime(0, now);
+              gainNode.gain.linearRampToValueAtTime(0.2, now + 0.2);
+              gainNode.gain.linearRampToValueAtTime(0, now + 0.5);
+              osc.start(now);
+              osc.stop(now + 0.5);
+              break;
+            case 'card':
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(880, now);
+              osc.frequency.exponentialRampToValueAtTime(1760, now + 0.3);
+              gainNode.gain.setValueAtTime(0.1, now);
+              gainNode.gain.linearRampToValueAtTime(0, now + 0.3);
+              osc.start(now);
+              osc.stop(now + 0.3);
+              break;
+            case 'damage':
+              osc.type = 'square';
+              osc.frequency.setValueAtTime(80, now);
+              gainNode.gain.setValueAtTime(0.3, now);
+              gainNode.gain.linearRampToValueAtTime(0, now + 0.2);
+              osc.start(now);
+              osc.stop(now + 0.2);
+              break;
+            case 'ui_click':
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(1000, now);
+              gainNode.gain.setValueAtTime(0.05, now);
+              gainNode.gain.linearRampToValueAtTime(0, now + 0.05);
+              osc.start(now);
+              osc.stop(now + 0.05);
+              break;
+            case 'ui_cancel':
+              osc.type = 'triangle';
+              osc.frequency.setValueAtTime(300, now);
+              osc.frequency.linearRampToValueAtTime(200, now + 0.1);
+              gainNode.gain.setValueAtTime(0.05, now);
+              gainNode.gain.linearRampToValueAtTime(0.01, now + 0.1);
+              osc.start(now);
+              osc.stop(now + 0.1);
+              break;
+            case 'error':
+              osc.type = 'sawtooth';
+              osc.frequency.setValueAtTime(150, now);
+              osc.frequency.linearRampToValueAtTime(100, now + 0.2);
+              gainNode.gain.setValueAtTime(0.1, now);
+              gainNode.gain.linearRampToValueAtTime(0.01, now + 0.2);
+              osc.start(now);
+              osc.stop(now + 0.2);
+              break;
+            case 'turn_start':
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(523, now);
+              osc.frequency.setValueAtTime(659, now + 0.1);
+              gainNode.gain.setValueAtTime(0.1, now);
+              gainNode.gain.linearRampToValueAtTime(0, now + 0.3);
+              osc.start(now);
+              osc.stop(now + 0.3);
+              break;
+            case 'bgm_tick': 
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(55, now);
+              gainNode.gain.setValueAtTime(0.02, now);
+              gainNode.gain.linearRampToValueAtTime(0, now + 2);
+              osc.start(now);
+              osc.stop(now + 2);
+              break;
+            default:
+              break;
+          }
+        };
+
+        // --- 常數設定 ---
+        const RESPAWN_TURNS = 3; 
+        const BASE_HP = 10;
+
+        const PLAYERS = [
+          { id: 0, name: '紅隊 (玩家)', color: 'bg-red-600', text: 'text-red-500', border: 'border-red-500', baseBg: 'bg-red-900/30', isBot: false },
+          { id: 1, name: '藍隊 (電腦)', color: 'bg-blue-600', text: 'text-blue-500', border: 'border-blue-500', baseBg: 'bg-blue-900/30', isBot: true },
+          { id: 2, name: '綠隊 (電腦)', color: 'bg-emerald-600', text: 'text-emerald-500', border: 'border-emerald-500', baseBg: 'bg-emerald-900/30', isBot: true },
+          { id: 3, name: '黃隊 (電腦)', color: 'bg-amber-500', text: 'text-amber-500', border: 'border-amber-500', baseBg: 'bg-amber-900/30', isBot: true },
+        ];
+
+        const UNIT_TYPES = {
+          WARRIOR: { name: '戰士', hp: 6, atk: 3, icon: Sword, moveRange: 2 },
+          SCOUT: { name: '偵查兵', hp: 3, atk: 1, icon: Eye, moveRange: 2 },
+          ASSASSIN: { name: '刺客', hp: 4, atk: 2, icon: Ghost, moveRange: 3 },
+        };
+
+        const BASE_CARDS = [
+          { id: 'heal', name: '急救包', desc: '恢復單位 3 HP', icon: Heart, effect: 'HEAL' },
+          { id: 'snipe', name: '狙擊', desc: '遠程 2 傷害', icon: Zap, effect: 'DMG' },
+          { id: 'shield', name: '基地護盾', desc: '基地 +5 HP', icon: Shield, effect: 'BASE_HEAL' },
+          { id: 'berserk', name: '狂暴針劑', desc: '下一次攻擊雙倍傷害', icon: Flame, effect: 'BUFF_DMG' },
+          { id: 'armor', name: '動力裝甲', desc: '指定單位獲得 4 點額外血量', icon: Plus, effect: 'BUFF_HP' },
+        ];
+
+        const ASSASSIN_CARDS = [
+            ...BASE_CARDS,
+            { id: 'stealth', name: '隱形披風', desc: '刺客隱身一回合 (敵人不可見)', icon: VenetianMask, effect: 'BUFF_STEALTH' }
+        ];
+
+        const getDistance = (p1, p2) => Math.abs(p1.x - p2.x) + Math.abs(p1.y - p2.y);
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        async function callGemini(prompt) {
+          try {
+            const response = await fetch(GEMINI_API_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+            });
+            if (!response.ok) return null;
+            const data = await response.json();
+            return data.candidates?.[0]?.content?.parts?.[0]?.text || null;
+          } catch (error) { return null; }
+        }
+
+        function App() {
+          const [view, setView] = useState('MENU');
+          const [gameMode, setGameMode] = useState('STANDARD'); 
+          const [gridSize, setGridSize] = useState(8);
+          const [turn, setTurn] = useState(0);
+          const [round, setRound] = useState(1);
+          const [players, setPlayers] = useState(PLAYERS.map(p => ({ ...p, isAlive: true, cards: [] })));
+          const [units, setUnits] = useState([]);
+          const [deadUnits, setDeadUnits] = useState([]); 
+          const [bases, setBases] = useState([]);
+          const [items, setItems] = useState([]);
+          const [logs, setLogs] = useState([]);
+          const [gameOver, setGameOver] = useState(false);
+          const [audioEnabled, setAudioEnabled] = useState(true);
+
+          const [selectedUnitId, setSelectedUnitId] = useState(null);
+          const [validMoves, setValidMoves] = useState([]);
+          const [validTargets, setValidTargets] = useState([]);
+          const [isAttacking, setIsAttacking] = useState(false);
+          const [selectedCard, setSelectedCard] = useState(null);
+          const [isBotThinking, setIsBotThinking] = useState(false);
+          const [aiAdvice, setAiAdvice] = useState(null);
+          const [isAiAdvising, setIsAiAdvising] = useState(false);
+
+          const currentPlayer = players[turn];
+          const selectedUnit = units.find(u => u.id === selectedUnitId);
+
+          const gameStateRef = useRef({ units, bases, items, players, gameOver, deadUnits, round, gridSize });
+
+          useEffect(() => {
+            gameStateRef.current = { units, bases, items, players, gameOver, deadUnits, round, gridSize };
+          }, [units, bases, items, players, gameOver, deadUnits, round, gridSize]);
+
+          useEffect(() => {
+            if (view === 'GAME' && !gameOver && players[turn].isBot) {
+              runBotTurn();
+            }
+          }, [turn, gameOver, view]);
+
+          useEffect(() => {
+            let interval;
+            if (view === 'GAME' && audioEnabled && !gameOver) {
+               interval = setInterval(() => { if(Math.random() > 0.5) playSound('bgm_tick'); }, 3000);
+            }
+            return () => clearInterval(interval);
+          }, [view, audioEnabled, gameOver]);
+
+          const initGame = (mode) => {
+            setGameMode(mode);
+            const size = mode === 'ASSASSIN' ? 10 : 8;
+            setGridSize(size);
+
+            const newBases = [
+              { id: 0, owner: 0, x: 0, y: 0, hp: BASE_HP },
+              { id: 1, owner: 1, x: size - 1, y: 0, hp: BASE_HP },
+              { id: 2, owner: 2, x: 0, y: size - 1, hp: BASE_HP },
+              { id: 3, owner: 3, x: size - 1, y: size - 1, hp: BASE_HP },
+            ];
+
+            let newUnits = [
+              { id: 'r_w', owner: 0, type: 'WARRIOR', x: 1, y: 0, hp: UNIT_TYPES.WARRIOR.hp, hasActed: false, buffs: {} },
+              { id: 'r_s', owner: 0, type: 'SCOUT', x: 0, y: 1, hp: UNIT_TYPES.SCOUT.hp, hasActed: false, buffs: {} },
+              { id: 'b_w', owner: 1, type: 'WARRIOR', x: size - 2, y: 0, hp: UNIT_TYPES.WARRIOR.hp, hasActed: false, buffs: {} },
+              { id: 'b_s', owner: 1, type: 'SCOUT', x: size - 1, y: 1, hp: UNIT_TYPES.SCOUT.hp, hasActed: false, buffs: {} },
+              { id: 'g_w', owner: 2, type: 'WARRIOR', x: 1, y: size - 1, hp: UNIT_TYPES.WARRIOR.hp, hasActed: false, buffs: {} },
+              { id: 'g_s', owner: 2, type: 'SCOUT', x: 0, y: size - 2, hp: UNIT_TYPES.SCOUT.hp, hasActed: false, buffs: {} },
+              { id: 'y_w', owner: 3, type: 'WARRIOR', x: size - 2, y: size - 1, hp: UNIT_TYPES.WARRIOR.hp, hasActed: false, buffs: {} },
+              { id: 'y_s', owner: 3, type: 'SCOUT', x: size - 1, y: size - 2, hp: UNIT_TYPES.SCOUT.hp, hasActed: false, buffs: {} },
+            ];
+
+            if (mode === 'ASSASSIN') {
+                newUnits.push(
+                    { id: 'r_a', owner: 0, type: 'ASSASSIN', x: 1, y: 1, hp: UNIT_TYPES.ASSASSIN.hp, hasActed: false, buffs: {} },
+                    { id: 'b_a', owner: 1, type: 'ASSASSIN', x: size - 2, y: 1, hp: UNIT_TYPES.ASSASSIN.hp, hasActed: false, buffs: {} },
+                    { id: 'g_a', owner: 2, type: 'ASSASSIN', x: 1, y: size - 2, hp: UNIT_TYPES.ASSASSIN.hp, hasActed: false, buffs: {} },
+                    { id: 'y_a', owner: 3, type: 'ASSASSIN', x: size - 2, y: size - 2, hp: UNIT_TYPES.ASSASSIN.hp, hasActed: false, buffs: {} }
+                );
+            }
+
+            const deck = mode === 'ASSASSIN' ? ASSASSIN_CARDS : BASE_CARDS;
+            const initialPlayers = PLAYERS.map(p => {
+                const hand = [];
+                for(let i=0; i<3; i++) hand.push(deck[Math.floor(Math.random() * deck.length)]);
+                return { ...p, isAlive: true, cards: hand };
+            });
+
+            setBases(newBases);
+            setUnits(newUnits);
+            setItems([{ x: Math.floor(size/2), y: Math.floor(size/2), type: 'CARD' }, { x: Math.floor(size/2)-1, y: Math.floor(size/2)-1, type: 'CARD' }]);
+            setLogs([{ text: mode === 'ASSASSIN' ? '刺客模式啟動！全軍出擊！' : '標準戰役開始！', type: 'system' }]);
+            setPlayers(initialPlayers);
+            setDeadUnits([]);
+            setTurn(0);
+            setRound(1);
+            setGameOver(false);
+            setAiAdvice(null);
+            setValidMoves([]);
+            setSelectedUnitId(null);
+            setView('GAME');
+            if(audioEnabled) playSound('turn_start');
+          };
+
+          const quitGame = () => { setView('MENU'); setIsBotThinking(false); if(audioEnabled) playSound('ui_cancel'); };
+          const addLog = (msg, type = 'system') => { setLogs(prev => [{ text: msg, type }, ...prev].slice(0, 8)); };
+
+          const updateGameState = (updates) => {
+            if (updates.units) setUnits(updates.units);
+            if (updates.players) setPlayers(updates.players);
+            if (updates.bases) setBases(updates.bases);
+            if (updates.items) setItems(updates.items);
+            if (updates.deadUnits) setDeadUnits(updates.deadUnits);
+            if (updates.gameOver !== undefined) setGameOver(updates.gameOver);
+            gameStateRef.current = { ...gameStateRef.current, ...updates };
+          };
+
+          const checkRespawns = (currentPlayerId) => {
+              const { deadUnits: currentDead, round: currentRound, gridSize: size } = gameStateRef.current;
+              const toRespawn = currentDead.filter(d => d.owner === currentPlayerId && d.respawnRound <= currentRound);
+              const stillDead = currentDead.filter(d => !(d.owner === currentPlayerId && d.respawnRound <= currentRound));
+              if (toRespawn.length === 0) return;
+
+              let currentUnits = [...gameStateRef.current.units];
+              const base = gameStateRef.current.bases.find(b => b.owner === currentPlayerId);
+
+              toRespawn.forEach(d => {
+                  let spawnPos = { x: base.x, y: base.y };
+                  const isOccupied = (tx, ty) => currentUnits.some(u => u.x === tx && u.y === ty);
+                  if (isOccupied(base.x, base.y)) {
+                      const adjacents = [{x:base.x+1,y:base.y},{x:base.x-1,y:base.y},{x:base.x,y:base.y+1},{x:base.x,y:base.y-1}]
+                                        .filter(p => p.x >=0 && p.x < size && p.y >=0 && p.y < size);
+                      const freeSpot = adjacents.find(p => !isOccupied(p.x, p.y));
+                      if (freeSpot) spawnPos = freeSpot;
+                      else return; 
+                  }
+                  const newUnit = { id: `${currentPlayerId}_${d.type}_${Date.now()}_${Math.random()}`, owner: currentPlayerId, type: d.type, x: spawnPos.x, y: spawnPos.y, hp: UNIT_TYPES[d.type].hp, hasActed: false, buffs: {} };
+                  currentUnits.push(newUnit);
+                  addLog(`${PLAYERS[currentPlayerId].name} 的 ${UNIT_TYPES[d.type].name} 復活。`, 'system');
+                  if(audioEnabled) playSound('respawn');
+              });
+              updateGameState({ units: currentUnits, deadUnits: stillDead });
+          };
+
+          const handleUnitDeath = (unitId, unitType, ownerId) => {
+             const respawnRound = gameStateRef.current.round + RESPAWN_TURNS;
+             const newDead = [...gameStateRef.current.deadUnits, { type: unitType, owner: ownerId, respawnRound }];
+             const newUnits = gameStateRef.current.units.filter(u => u.id !== unitId);
+             updateGameState({ units: newUnits, deadUnits: newDead });
+          };
+
+          const performMove = async (unitId, x, y) => {
+             const unit = gameStateRef.current.units.find(u => u.id === unitId);
+             if (!unit) return;
+             if(audioEnabled) playSound('move');
+             let newUnits = gameStateRef.current.units.map(u => u.id === unitId ? { ...u, x, y, hasActed: true } : u);
+             let stateUpdates = { units: newUnits };
+             const itemIndex = gameStateRef.current.items.findIndex(i => i.x === x && i.y === y);
+             if (itemIndex !== -1 && unit.type === 'SCOUT') {
+                 const deck = gameMode === 'ASSASSIN' ? ASSASSIN_CARDS : BASE_CARDS;
+                 const randomCard = deck[Math.floor(Math.random() * deck.length)];
+                 const newPlayers = [...gameStateRef.current.players];
+                 newPlayers[unit.owner].cards.push(randomCard);
+                 const newItems = [...gameStateRef.current.items];
+                 newItems.splice(itemIndex, 1);
+                 addLog(`${PLAYERS[unit.owner].name} 獲取了 ${randomCard.name}`);
+                 if(audioEnabled) playSound('card');
+                 stateUpdates.players = newPlayers;
+                 stateUpdates.items = newItems;
+             }
+             updateGameState(stateUpdates);
+          };
+
+          const performAttack = async (attackerId, targetId, targetType) => {
+              const attackerUnit = gameStateRef.current.units.find(u => u.id === attackerId);
+              if (!attackerUnit || attackerUnit.hasActed) return;
+              let dmg = UNIT_TYPES[attackerUnit.type].atk;
+              if (attackerUnit.buffs?.doubleDamage) dmg *= 2;
+              if(audioEnabled) playSound('attack');
+              let stateUpdates = {};
+              if (targetType === 'UNIT') {
+                  const targetUnit = gameStateRef.current.units.find(u => u.id === targetId);
+                  if(!targetUnit) return;
+                  const newHp = targetUnit.hp - dmg;
+                  if(audioEnabled) playSound('damage');
+                  let newUnits = gameStateRef.current.units.map(u => u.id === targetId ? { ...u, hp: newHp } : u);
+                  addLog(`${PLAYERS[attackerUnit.owner].name} 攻擊 ${PLAYERS[targetUnit.owner].name} 造成 ${dmg} 傷害`);
+                  if (newHp <= 0) {
+                      addLog('擊破目標單位！');
+                      handleUnitDeath(targetId, targetUnit.type, targetUnit.owner);
+                      newUnits = gameStateRef.current.units; 
+                  }
+                  newUnits = newUnits.map(u => u.id === attackerId ? { ...u, hasActed: true, buffs: { ...u.buffs, doubleDamage: false, stealth: false } } : u);
+                  stateUpdates.units = newUnits;
+              } else if (targetType === 'BASE') {
+                  const targetBase = gameStateRef.current.bases.find(b => b.id === targetId);
+                  const newHp = targetBase.hp - dmg;
+                  const newBases = gameStateRef.current.bases.map(b => b.id === targetId ? { ...b, hp: newHp } : b);
+                  let newUnits = gameStateRef.current.units.map(u => u.id === attackerId ? { ...u, hasActed: true, buffs: { ...u.buffs, doubleDamage: false, stealth: false } } : u);
+                  stateUpdates.units = newUnits;
+                  stateUpdates.bases = newBases;
+                  addLog(`攻擊大本營！賸餘 HP ${Math.max(0, newHp)}`);
+                  if(audioEnabled) playSound('damage');
+                  if (newHp <= 0) { updateGameState(stateUpdates); handlePlayerDefeat(targetBase.owner); return; }
+              }
+              updateGameState(stateUpdates);
+          };
+
+          const handlePlayerDefeat = (lostPlayerId) => {
+            addLog(`${PLAYERS[lostPlayerId].name} 基地陷落！`);
+            const newPlayers = gameStateRef.current.players.map(p => p.id === lostPlayerId ? { ...p, isAlive: false } : p);
+            const remainingUnits = gameStateRef.current.units.filter(u => u.owner !== lostPlayerId);
+            let updates = { players: newPlayers, units: remainingUnits };
+            const alivePlayers = newPlayers.filter(p => p.isAlive);
+            if (alivePlayers.length === 1) { updates.gameOver = true; addLog(`🏆 ${alivePlayers[0].name} 勝利！`, 'win'); if(audioEnabled) playSound('win'); }
+            updateGameState(updates);
+          };
+
+          const startCardUse = (card, index) => {
+              if(gameOver || isBotThinking) return;
+              if(audioEnabled) playSound('card');
+              const myUnits = units.filter(u => u.owner === turn);
+              if (card.effect === 'BUFF_DMG') {
+                  const newUnits = units.map(u => (u.owner === turn && (u.type === 'WARRIOR' || u.type === 'ASSASSIN')) ? { ...u, buffs: { ...u.buffs, doubleDamage: true } } : u);
+                  updateGameState({ units: newUnits });
+                  addLog('我方部隊裝填狂暴彈藥！');
+                  consumeCard(index);
+                  return;
+              }
+              if (card.effect === 'BUFF_HP') {
+                  setSelectedCard({ card, index });
+                  setValidTargets(myUnits.filter(u => u.type === 'WARRIOR').map(u => ({ type: 'UNIT_BUFF_HP', id: u.id, x: u.x, y: u.y })));
+                  resetSelection();
+                  return;
+              }
+              if (card.effect === 'BUFF_STEALTH') {
+                  setSelectedCard({ card, index });
+                  setValidTargets(myUnits.filter(u => u.type === 'ASSASSIN').map(u => ({ type: 'UNIT_BUFF_STEALTH', id: u.id, x: u.x, y: u.y })));
+                  resetSelection();
+                  return;
+              }
+              setSelectedCard({ card, index });
+              setValidMoves([]);
+              resetSelection();
+              if (card.effect === 'HEAL') {
+                  setValidTargets(myUnits.map(u => ({ type: 'UNIT_HEAL', id: u.id, x: u.x, y: u.y })));
+              } else if (card.effect === 'DMG') {
+                  const visibleEnemies = units.filter(u => u.owner !== turn && !u.buffs?.stealth);
+                  setValidTargets(visibleEnemies.map(u => ({ type: 'UNIT_DMG', id: u.id, x: u.x, y: u.y })));
+              } else if (card.effect === 'BASE_HEAL') {
+                  const myBase = bases.find(b => b.owner === turn);
+                  if (myBase.hp >= BASE_HP) { addLog('防禦系統完整'); if(audioEnabled) playSound('error'); setSelectedCard(null); return; }
+                  updateGameState({ bases: bases.map(b => b.owner === turn ? {...b, hp: Math.min(b.hp + 5, BASE_HP + 5)} : b) });
+                  consumeCard(index);
+                  setSelectedCard(null);
+              }
+          };
+
+          const handleCardTargetClick = (target) => {
+              if (!selectedCard) return;
+              const currentUnits = gameStateRef.current.units;
+              if (selectedCard.card.effect === 'BUFF_HP' && target.type === 'UNIT_BUFF_HP') {
+                  updateGameState({ units: currentUnits.map(u => u.id === target.id ? {...u, hp: u.hp + 4} : u) });
+                  consumeCard(selectedCard.index);
+                  addLog('戰士強化裝甲部署完畢。');
+              }
+              if (selectedCard.card.effect === 'BUFF_STEALTH' && target.type === 'UNIT_BUFF_STEALTH') {
+                  updateGameState({ units: currentUnits.map(u => u.id === target.id ? {...u, buffs: {...u.buffs, stealth: true}} : u) });
+                  consumeCard(selectedCard.index);
+                  addLog('刺客遁入陰影。');
+                  if(audioEnabled) playSound('stealth');
+              }
+              if (selectedCard.card.effect === 'HEAL' && target.type === 'UNIT_HEAL') {
+                  updateGameState({ units: currentUnits.map(u => u.id === target.id ? {...u, hp: u.hp + 3} : u) });
+                  consumeCard(selectedCard.index);
+              } else if (selectedCard.card.effect === 'DMG' && target.type === 'UNIT_DMG') {
+                  let targetUnit = units.find(u => u.id === target.id);
+                  let newHp = targetUnit.hp - 2;
+                  if (newHp <= 0) handleUnitDeath(target.id, targetUnit.type, targetUnit.owner);
+                  else updateGameState({ units: currentUnits.map(u => u.id === target.id ? {...u, hp: newHp} : u) });
+                  consumeCard(selectedCard.index);
+              }
+              if(audioEnabled && selectedCard.card.effect !== 'BUFF_STEALTH') playSound('card');
+              setSelectedCard(null);
+              setValidTargets([]);
+          };
+
+          const consumeCard = (index) => {
+              const newPlayers = [...players];
+              newPlayers[turn].cards.splice(index, 1);
+              updateGameState({ players: newPlayers });
+          };
+
+          const nextTurn = () => {
+            if (gameOver) return;
+            resetSelection();
+            setSelectedCard(null);
+            setValidTargets([]);
+            setAiAdvice(null);
+            if(audioEnabled) playSound('turn_start');
+            let nextPlayerId = (turn + 1) % 4;
+            while (!players[nextPlayerId].isAlive) nextPlayerId = (nextPlayerId + 1) % 4;
+            const newUnits = gameStateRef.current.units.map(u => {
+                let newBuffs = { ...u.buffs };
+                if (u.owner === nextPlayerId && u.buffs.stealth) delete newBuffs.stealth;
+                return { ...u, hasActed: false, buffs: newBuffs };
+            });
+            updateGameState({ units: newUnits }); 
+            setTurn(nextPlayerId);
+            if (nextPlayerId === 0) { setRound(round + 1); spawnRandomItem(); }
+            checkRespawns(nextPlayerId);
+          };
+
+          const spawnRandomItem = () => {
+              if (Math.random() > 0.3) {
+                let x, y, valid = false, attempts = 0;
+                const currentBases = gameStateRef.current.bases;
+                const size = gameStateRef.current.gridSize;
+                do {
+                    x = Math.floor(Math.random() * size);
+                    y = Math.floor(Math.random() * size);
+                    if (!currentBases.some(b => b.x === x && b.y === y)) valid = true;
+                    attempts++;
+                } while (!valid && attempts < 10);
+                if (valid) {
+                    updateGameState({ items: [...items, { x, y, type: 'CARD' }] });
+                    addLog('⚡ 偵測到新型晶片訊號！');
+                }
+              }
+          };
+
+          const runBotTurn = async () => {
+            setIsBotThinking(true);
+            const botId = turn;
+            await sleep(600);
+            const myUnitIds = gameStateRef.current.units.filter(u => u.owner === botId).map(u => u.id);
+            for (const unitId of myUnitIds) {
+              const currentUnit = gameStateRef.current.units.find(u => u.id === unitId);
+              if (!currentUnit) continue; 
+              setSelectedUnitId(currentUnit.id);
+              await sleep(300);
+              const { units: currUnits, bases: currBases, items: currItems, gridSize: size } = gameStateRef.current;
+              let actionTaken = false;
+              if (currentUnit.type === 'WARRIOR' || currentUnit.type === 'ASSASSIN') {
+                  const adjacents = [{x:currentUnit.x+1,y:currentUnit.y},{x:currentUnit.x-1,y:currentUnit.y},{x:currentUnit.x,y:currentUnit.y+1},{x:currentUnit.x,y:currentUnit.y-1}];
+                  let attackTarget = null, targetType = null;
+                  for (let pos of adjacents) {
+                      const base = currBases.find(b => b.x === pos.x && b.y === pos.y && b.owner !== botId && b.hp > 0 && gameStateRef.current.players[b.owner].isAlive);
+                      if (base) { attackTarget = base; targetType = 'BASE'; break; }
+                      const enemy = currUnits.find(u => u.x === pos.x && u.y === pos.y && u.owner !== botId && !u.buffs?.stealth);
+                      if (enemy) { attackTarget = enemy; targetType = 'UNIT'; break; }
+                  }
+                  if (attackTarget) { await performAttack(currentUnit.id, attackTarget.id, targetType); actionTaken = true; await sleep(300); }
+              }
+              if (!actionTaken) {
+                  let target = null;
+                  if (currentUnit.type === 'SCOUT' && currItems.length > 0) target = currItems.reduce((n, i) => (!n || getDistance(currentUnit, i) < getDistance(currentUnit, n)) ? i : n, null);
+                  if (!target) {
+                    const ens = [...currUnits.filter(u => u.owner !== botId && !u.buffs?.stealth), ...currBases.filter(b => b.owner !== botId && b.hp > 0)];
+                    if(ens.length > 0) target = ens.reduce((n, e) => (!n || getDistance(currentUnit, e) < getDistance(currentUnit, n)) ? e : n, null);
+                  }
+                  if (target) {
+                      const moves = [];
+                      const range = UNIT_TYPES[currentUnit.type].moveRange;
+                      for (let x = 0; x < size; x++) {
+                        for (let y = 0; y < size; y++) {
+                            if (getDistance({x, y}, currentUnit) <= range && getDistance({x,y}, currentUnit) > 0) {
+                                if (!currUnits.some(u => u.x === x && u.y === y) && !currBases.some(b => b.x === x && b.y === y)) moves.push({ x, y });
+                            }
+                        }
+                      }
+                      if (moves.length > 0) {
+                          moves.sort((a, b) => getDistance(a, target) - getDistance(b, target));
+                          await performMove(currentUnit.id, moves[0].x, moves[0].y);
+                          await sleep(300);
+                      }
+                  }
+              }
+              setSelectedUnitId(null);
+            }
+            setIsBotThinking(false);
+            nextTurn();
+          };
+
+          const handleSelectUnit = (unit) => {
+            if (gameOver || isBotThinking || view !== 'GAME') return;
+            if (unit.owner !== turn || unit.hasActed || selectedCard) return;
+            if(audioEnabled) playSound('ui_click');
+            setSelectedUnitId(unit.id);
+            setIsAttacking(false);
+            const moves = [];
+            const range = UNIT_TYPES[unit.type].moveRange;
+            const size = gameStateRef.current.gridSize;
+            for (let x = 0; x < size; x++) {
+              for (let y = 0; y < size; y++) {
+                if (getDistance({x, y}, unit) <= range && getDistance({x,y}, unit) > 0) {
+                  if (!units.some(u => u.x === x && u.y === y) && !bases.some(b => b.x === x && b.y === y)) moves.push({ x, y });
+                }
+              }
+            }
+            setValidMoves(moves);
+            setValidTargets([]);
+          };
+
+          const prepareAttack = () => {
+            const unit = units.find(u => u.id === selectedUnitId);
+            if (!unit) return;
+            if(audioEnabled) playSound('ui_click');
+            setIsAttacking(true);
+            setValidMoves([]);
+            const targets = [];
+            const adjs = [{x: unit.x+1, y: unit.y}, {x: unit.x-1, y: unit.y}, {x: unit.x, y: unit.y+1}, {x: unit.x, y: unit.y-1}];
+            adjs.forEach(pos => {
+              const eu = units.find(u => u.x === pos.x && u.y === pos.y && u.owner !== turn && !u.buffs?.stealth);
+              if (eu) targets.push({ type: 'UNIT', id: eu.id, x: pos.x, y: pos.y });
+              const eb = bases.find(b => b.x === pos.x && b.y === pos.y && b.owner !== turn);
+              if (eb && players[eb.owner].isAlive) targets.push({ type: 'BASE', id: eb.id, x: pos.x, y: pos.y });
+            });
+            setValidTargets(targets);
+            if (targets.length === 0) { addLog('目標脫離範圍'); if(audioEnabled) playSound('error'); setIsAttacking(false); }
+          };
+
+          const handleCellClick = (x, y) => {
+            if (gameOver || isBotThinking || view !== 'GAME') return;
+            if (selectedCard) {
+                const t = validTargets.find(v => v.x === x && v.y === y);
+                if (t) handleCardTargetClick(t); 
+                else if (selectedCard.card.effect !== 'BUFF_HP' && selectedCard.card.effect !== 'BUFF_STEALTH') { setSelectedCard(null); setValidTargets([]); } 
+                return;
+            }
+            if (isAttacking) {
+              const t = validTargets.find(v => v.x === x && v.y === y);
+              if (t) { performAttack(selectedUnitId, t.id, t.type); resetSelection(); } 
+              else { setIsAttacking(false); setValidTargets([]); if(audioEnabled) playSound('ui_cancel'); }
+              return;
+            }
+            const move = validMoves.find(m => m.x === x && m.y === y);
+            if (move && !selectedCard) { performMove(selectedUnitId, x, y); resetSelection(); return; }
+            const unit = units.find(u => u.x === x && u.y === y);
+            if (unit) { handleSelectUnit(unit); return; }
+            if (selectedUnitId) { resetSelection(); if(audioEnabled) playSound('ui_cancel'); }
+          };
+
+          const resetSelection = () => { setSelectedUnitId(null); setValidMoves([]); setIsAttacking(false); };
+
+          const handleAskStrategy = async () => {
+            if (isAiAdvising || gameOver) return;
+            setIsAiAdvising(true);
+            if(audioEnabled) playSound('ui_click');
+            setAiAdvice("掃描戰場數據...");
+            const advice = await callGemini(`戰棋軍師，我方(紅)剩 ${units.filter(u=>u.owner===0).length} 單位，給個簡短戰術建議(20字內繁中)`);
+            setAiAdvice(advice || "通訊中斷");
+            setIsAiAdvising(false);
+          };
+
+          const renderCell = (x, y) => {
+            const base = bases.find(b => b.x === x && b.y === y);
+            const unit = units.find(u => u.x === x && u.y === y);
+            const item = items.find(i => i.x === x && i.y === y);
+            const isSelected = unit && unit.id === selectedUnitId;
+            const isValidMove = validMoves.some(m => m.x === x && m.y === y);
+            const isValidTarget = validTargets.some(t => t.x === x && t.y === y);
+            const isHidden = unit && unit.owner !== 0 && unit.buffs?.stealth;
+            const unitToRender = isHidden ? null : unit;
+
+            let bgColor = 'bg-slate-900/80';
+            if (base) bgColor = PLAYERS[base.owner].baseBg;
+            if (isValidMove) bgColor = 'bg-cyan-500/20 shadow-[inset_0_0_10px_rgba(6,182,212,0.5)] cursor-pointer';
+            if (isValidTarget) bgColor = 'bg-rose-500/30 shadow-[inset_0_0_15px_rgba(244,63,94,0.6)] cursor-pointer animate-pulse';
+
+            return (
+              <div key={`${x}-${y}`} onClick={() => handleCellClick(x, y)} className={`w-full aspect-square border border-slate-700/50 relative flex items-center justify-center ${bgColor} transition-all duration-300 backdrop-blur-sm`}>
+                <div className="absolute top-0 left-0 w-1 h-1 bg-slate-600/30"></div>
+                <div className="absolute bottom-0 right-0 w-1 h-1 bg-slate-600/30"></div>
+                {base && base.hp > 0 && (<div className="absolute inset-0 flex flex-col items-center justify-center opacity-40 pointer-events-none"><Castle className={PLAYERS[base.owner].text} size={28} /></div>)}
+                {base && <div className="absolute top-0 right-0 text-[10px] font-bold text-slate-400 p-1 font-mono">{Math.max(0, base.hp)}</div>}
+                {item && !unitToRender && (<div className="relative"><div className="absolute -inset-2 bg-yellow-400/30 blur-md rounded-full animate-pulse"></div><Zap className="text-yellow-400 relative z-10" size={20} /></div>)}
+                {unitToRender && (
+                  <div className={`relative z-10 flex flex-col items-center transition-all duration-300 ${isSelected ? 'scale-110 -translate-y-1' : ''} ${unitToRender.hasActed ? 'opacity-60 grayscale' : ''} ${unitToRender.buffs?.stealth ? 'opacity-40 animate-pulse' : ''}`}>
+                    {unitToRender.buffs?.doubleDamage && <div className="absolute -top-4 text-orange-500 animate-bounce"><Flame size={14}/></div>}
+                    {unitToRender.buffs?.stealth && <div className="absolute -top-4 left-4 text-cyan-400 animate-pulse"><Ghost size={12}/></div>}
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shadow-lg border-2 ${PLAYERS[unitToRender.owner].color} ${PLAYERS[unitToRender.owner].border} text-white ${isSelected ? 'ring-2 ring-white shadow-cyan-500' : ''}`}>
+                      {unitToRender.type === 'WARRIOR' && <Sword size={18} />}
+                      {unitToRender.type === 'SCOUT' && <Eye size={18} />}
+                      {unitToRender.type === 'ASSASSIN' && <Ghost size={18} />}
+                    </div>
+                    <div className="w-9 h-1 bg-slate-800 mt-1 rounded-full border border-slate-600 overflow-hidden">
+                        <div className={`h-full transition-all ${unitToRender.hp <= 2 ? 'bg-red-500' : 'bg-green-400'}`} style={{ width: `${Math.min(100, (unitToRender.hp / UNIT_TYPES[unitToRender.type].hp) * 100)}%` }}/>
+                    </div>
+                  </div>
+                )}
+                {isValidMove && !unitToRender && <div className="w-2 h-2 bg-cyan-400 rounded-full animate-ping"></div>}
+              </div>
+            );
+          };
+
+          if (view === 'MENU') {
+              return (
+                  <div className="min-h-screen bg-black text-slate-100 flex flex-col items-center justify-center p-4 relative overflow-hidden font-mono text-center">
+                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-slate-800 via-black to-black opacity-80"></div>
+                      <div className="absolute inset-0 opacity-20" style={{backgroundImage: 'linear-gradient(rgba(0, 255, 255, 0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 255, 255, 0.1) 1px, transparent 1px)', backgroundSize: '40px 40px'}}></div>
+                      <div className="z-10 space-y-10 animate-in fade-in zoom-in duration-700">
+                          <div className="relative inline-block"><Castle size={80} className="text-cyan-400 relative z-10" /></div>
+                          <div className="space-y-2"><h1 className="text-5xl md:text-7xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500">四國戰棋</h1><p className="text-cyan-200/60 text-lg tracking-[0.5em] uppercase font-bold">Cyber Tactics</p></div>
+                          <div className="flex flex-col gap-4 w-full max-w-xs mx-auto">
+                              <button onClick={() => initGame('STANDARD')} className="group px-8 py-4 bg-cyan-600/20 border border-cyan-500/50 hover:bg-cyan-500/40 transform skew-x-[-10deg] transition-all font-bold text-lg text-cyan-100 flex items-center justify-center gap-3"><Play className="transform skew-x-[10deg]"/> <span className="transform skew-x-[10deg]">標準戰役 (8x8)</span></button>
+                              <button onClick={() => initGame('ASSASSIN')} className="group px-8 py-4 bg-purple-600/20 border border-purple-500/50 hover:bg-purple-500/40 transform skew-x-[-10deg] transition-all font-bold text-lg text-purple-100 flex items-center justify-center gap-3"><Ghost className="transform skew-x-[10deg]"/> <span className="transform skew-x-[10deg]">刺客模式 (10x10)</span></button>
+                              <button onClick={() => setView('RULES')} className="px-8 py-3 bg-slate-800/50 border border-slate-700 transform skew-x-[-10deg] font-bold text-slate-300 hover:text-white transition-colors"><span className="transform skew-x-[10deg] block">戰場教範</span></button>
+                              <button onClick={() => setAudioEnabled(!audioEnabled)} className="text-slate-500 hover:text-cyan-400 flex items-center justify-center gap-2 text-sm">{audioEnabled ? <Volume2 size={16}/> : <VolumeX size={16}/>} 音效控制</button>
+                          </div>
+                      </div>
+                  </div>
+              );
+          }
+
+          if (view === 'RULES') {
+              return (
+                  <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col p-4 md:p-8 font-sans overflow-y-auto">
+                      <div className="max-w-4xl mx-auto w-full space-y-6 animate-in slide-in-from-right duration-500">
+                          <button onClick={() => { setView('MENU'); if(audioEnabled) playSound('ui_cancel'); }} className="flex items-center gap-2 text-cyan-400 hover:text-cyan-300 transition-colors font-bold tracking-wider sticky top-0 bg-slate-950/90 py-2 z-10 backdrop-blur"><ChevronLeft /> 返回主選單</button>
+                          <div className="glass-panel rounded-2xl p-6 md:p-10 shadow-2xl" style={{background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(12px)', border: '1px solid rgba(51, 65, 85, 0.5)'}}>
+                              <h2 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 mb-10 flex items-center gap-4 border-b border-slate-700 pb-6"><ScrollText className="text-cyan-500 w-10 h-10" /> 戰術作戰指南 (Tactical Guide)</h2>
+                              <div className="space-y-12 text-slate-300">
+                                  <section>
+                                      <h3 className="text-2xl font-bold text-white mb-4 flex items-center gap-3"><span className="p-2 bg-red-500/20 rounded-lg text-red-400"><User size={24}/></span> 1. 作戰目標 & 勝利條件</h3>
+                                      <div className="pl-4 border-l-2 border-slate-700 space-y-3">
+                                          <p className="text-lg">你是指揮 <span className="text-red-400 font-bold">紅隊</span> 的指揮官，必須在四方混戰中存活。</p>
+                                          <div className="grid md:grid-cols-2 gap-4 mt-4">
+                                              <div className="bg-slate-800/60 p-4 rounded-lg border border-slate-700"><div className="text-yellow-400 font-bold mb-1">👑 勝利條件</div>成為戰場上 <span className="text-white">唯一存活</span> 的陣營。</div>
+                                              <div className="bg-slate-800/60 p-4 rounded-lg border border-slate-700"><div className="text-red-400 font-bold mb-1">💀 失敗條件</div>我方 <span className="text-white">大本營 HP 歸零</span>。</div>
+                                          </div>
+                                      </div>
+                                  </section>
+                                  <section>
+                                      <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-3"><span className="p-2 bg-blue-500/20 rounded-lg text-blue-400"><Sword size={24}/></span> 2. 戰鬥單位數據庫</h3>
+                                      <div className="grid lg:grid-cols-3 gap-6">
+                                          <div className="bg-slate-800/50 p-5 rounded-xl border border-slate-700 hover:border-red-500/50 transition-colors">
+                                              <div className="flex items-center gap-3 mb-4 border-b border-slate-700 pb-3"><div className="p-2 bg-red-900/50 rounded text-red-400"><Sword size={24}/></div><div><div className="font-black text-xl text-white">戰士 (Warrior)</div><div className="text-xs text-slate-500">主力輸出 / 坦克</div></div></div>
+                                              <ul className="text-sm space-y-2"><li>❤️ 生命值：<span className="text-green-400 font-mono text-lg">6 (高)</span></li><li>⚔️ 攻擊力：<span className="text-red-400 font-mono text-lg">3</span></li><li>🦶 移動力：<span className="text-blue-400 font-mono text-lg">2 格</span></li><li className="text-amber-400 mt-2 italic flex gap-2 items-start"><AlertTriangle size={14} className="shrink-0 mt-0.5"/> 行動限制：每回合只能「移動」或「攻擊」擇一。</li></ul>
+                                          </div>
+                                          <div className="bg-slate-800/50 p-5 rounded-xl border border-slate-700 hover:border-blue-500/50 transition-colors">
+                                              <div className="flex items-center gap-3 mb-4 border-b border-slate-700 pb-3"><div className="p-2 bg-blue-900/50 rounded text-blue-400"><Eye size={24}/></div><div><div className="font-black text-xl text-white">偵查兵 (Scout)</div><div className="text-xs text-slate-500">資源收集 / 快速</div></div></div>
+                                              <ul className="text-sm space-y-2"><li>❤️ 生命值：<span className="text-green-400 font-mono text-lg">3</span></li><li>⚔️ 攻擊力：<span className="text-slate-500 font-mono">無法攻擊</span></li><li>🦶 移動力：<span className="text-blue-400 font-mono text-lg">2 格</span></li><li className="text-cyan-300 mt-2 flex gap-2 items-start"><Info size={14} className="shrink-0 mt-0.5"/> 戰略用途：佔領地圖上的機遇卡 <Zap size={10} className="inline"/>。</li></ul>
+                                          </div>
+                                          <div className="bg-slate-800/50 p-5 rounded-xl border border-slate-700 hover:border-purple-500/50 transition-colors relative overflow-hidden">
+                                              <div className="absolute top-0 right-0 bg-purple-600 text-white text-[10px] px-2 py-1 rounded-bl font-bold">刺客模式限定</div>
+                                              <div className="flex items-center gap-3 mb-4 border-b border-slate-700 pb-3"><div className="p-2 bg-purple-900/50 rounded text-purple-400"><Ghost size={24}/></div><div><div className="font-black text-xl text-white">刺客 (Assassin)</div><div className="text-xs text-slate-500">高機動 / 奇襲</div></div></div>
+                                              <ul className="text-sm space-y-2"><li>❤️ 生命值：<span className="text-green-400 font-mono text-lg">4</span></li><li>⚔️ 攻擊力：<span className="text-red-400 font-mono text-lg">2</span></li><li>🦶 移動力：<span className="text-blue-400 font-mono text-lg">3 格</span></li><li className="text-purple-300 mt-2 flex gap-2 items-start"><Sparkles size={14} className="shrink-0 mt-0.5"/> 特殊能力：可使用「隱形披風」進入無法被選取狀態。</li></ul>
+                                          </div>
+                                      </div>
+                                  </section>
+                                  <section>
+                                      <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-3"><span className="p-2 bg-yellow-500/20 rounded-lg text-yellow-400"><Zap size={24}/></span> 3. 戰術晶片 (機遇卡)</h3>
+                                      <p className="mb-4 text-slate-400">當偵查兵移動到閃電標記格 <Zap size={14} className="inline text-yellow-400"/> 時可獲得，開局每人隨機 3 張。</p>
+                                      <div className="grid md:grid-cols-2 gap-4">
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700 hover:bg-slate-800 transition-colors"><div className="p-2 bg-green-900/50 text-green-400 rounded shrink-0"><Heart size={20}/></div><div><div className="font-bold text-green-300 text-lg">急救包</div><div className="text-sm text-slate-400">指定任一單位恢復 <span className="text-white font-bold">3 點</span> HP。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700 hover:bg-slate-800 transition-colors"><div className="p-2 bg-red-900/50 text-red-400 rounded shrink-0"><Target size={20}/></div><div><div className="font-bold text-red-300 text-lg">狙擊</div><div className="text-sm text-slate-400">對地圖上任意敵方單位造成 <span className="text-white font-bold">2 點</span> 傷害 (無視距離)。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700 hover:bg-slate-800 transition-colors"><div className="p-2 bg-blue-900/50 text-blue-400 rounded shrink-0"><Shield size={20}/></div><div><div className="font-bold text-blue-300 text-lg">基地護盾</div><div className="text-sm text-slate-400">修復大本營 <span className="text-white font-bold">5 點</span> HP (上限15)。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700 hover:bg-slate-800 transition-colors"><div className="p-2 bg-orange-900/50 text-orange-400 rounded shrink-0"><Flame size={20}/></div><div><div className="font-bold text-orange-300 text-lg">狂暴針劑</div><div className="text-sm text-slate-400">指定戰士下一次攻擊造成 <span className="text-white font-bold">雙倍 (2x)</span> 傷害。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700 hover:bg-slate-800 transition-colors"><div className="p-2 bg-cyan-900/50 text-cyan-400 rounded shrink-0"><Plus size={20}/></div><div><div className="font-bold text-cyan-300 text-lg">動力裝甲</div><div className="text-sm text-slate-400">指定戰士永久增加 <span className="text-white font-bold">4 點</span> HP (可突破上限)。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-purple-900/50 hover:bg-slate-800 transition-colors"><div className="p-2 bg-purple-900/50 text-purple-400 rounded shrink-0"><VenetianMask size={20}/></div><div><div className="font-bold text-purple-300 text-lg">隱形披風</div><div className="text-sm text-slate-400">刺客專屬：<span className="text-white font-bold">隱身 1 回合</span> (敵方無法選中/攻擊)。</div></div></div>
+                                      </div>
+                                  </section>
+                                  <section>
+                                      <h3 className="text-2xl font-bold text-white mb-4 flex items-center gap-3"><span className="p-2 bg-purple-500/20 rounded-lg text-purple-400"><RotateCcw size={24}/></span> 4. 戰場機制</h3>
+                                      <div className="space-y-4">
+                                          <div className="bg-slate-800/40 p-4 rounded-lg border-l-4 border-purple-500 flex gap-4">
+                                              <div className="mt-1"><Timer size={24} className="text-purple-400"/></div>
+                                              <div><h4 className="font-bold text-white text-lg mb-1">自動復活系統</h4><p className="text-sm text-slate-300">單位陣亡後並非永久消失。經過 <span className="text-purple-400 font-bold">3 回合</span> 冷卻時間後，它們將在大本營或其周圍空地自動重生。</p></div>
+                                          </div>
+                                          <div className="bg-slate-800/40 p-4 rounded-lg border-l-4 border-indigo-500 flex gap-4">
+                                              <div className="mt-1"><Cpu size={24} className="text-indigo-400"/></div>
+                                              <div><h4 className="font-bold text-white text-lg mb-1">AI 行為模式</h4><p className="text-sm text-slate-300">電腦對手會優先攻擊基地，其次是單位。它們也會搜尋地圖上的機遇卡。當你的大本營血量低落時，請務必回防。</p></div>
+                                          </div>
+                                      </div>
+                                  </section>
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+              );
+          }
+
+          return (
+            <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans select-none overflow-hidden">
+              <header className="px-4 py-3 bg-slate-900/80 backdrop-blur border-b border-slate-800 flex justify-between items-center z-30">
+                <div className="flex items-center gap-3">
+                   <button onClick={quitGame} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"><ChevronLeft size={20}/></button>
+                   <div className={`w-3 h-3 rounded-full ${currentPlayer.color} animate-pulse shadow-[0_0_10px_currentColor]`}></div>
+                   <div><div className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Turn {round}</div><div className={`text-sm font-bold ${currentPlayer.text} flex items-center gap-2`}>{currentPlayer.name} {isBotThinking && <Cpu size={14} className="animate-spin text-slate-400"/>}</div></div>
+                </div>
+                <div className="flex gap-2">
+                    {!currentPlayer.isBot && !gameOver && (<button onClick={handleAskStrategy} disabled={isAiAdvising} className="px-3 py-1.5 bg-purple-900/30 border border-purple-500/50 text-purple-300 rounded text-xs font-bold hover:bg-purple-800/50 transition-all flex items-center gap-2"><Sparkles size={14}/>{isAiAdvising ? '分析中' : 'AI軍師'}</button>)}
+                    <button onClick={nextTurn} disabled={isBotThinking || currentPlayer.isBot} className={`px-4 py-1.5 rounded text-sm font-bold flex items-center gap-2 transition-all ${isBotThinking || currentPlayer.isBot ? 'bg-slate-800 text-slate-600' : 'bg-cyan-600 hover:bg-cyan-500'}`}>{isBotThinking ? '等待對手' : '結束回合'} <Footprints size={14}/></button>
+                </div>
+              </header>
+
+              <main className="flex-1 flex flex-col md:flex-row relative overflow-hidden">
+                <div className="flex-1 flex items-center justify-center p-4 overflow-auto bg-black shadow-inner">
+                   <div className="relative"><div className="absolute -inset-1 bg-cyan-500 opacity-5 blur-2xl"></div>
+                     <div className="grid gap-1 bg-slate-900/90 p-2 rounded-lg border border-slate-700 shadow-2xl relative z-10" style={{ gridTemplateColumns: `repeat(${gridSize}, minmax(30px, 1fr))`, width: 'min(90vw, 85vh)', maxWidth: '650px' }}>
+                       {Array.from({ length: gridSize }).map((_, y) => Array.from({ length: gridSize }).map((_, x) => renderCell(x, y)))}
+                     </div>
+                     {gameOver && (<div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-50 backdrop-blur rounded-lg border border-yellow-500/30"><h1 className="text-5xl font-black text-yellow-400 mb-6 tracking-tighter">VICTORY</h1><button onClick={() => initGame(gameMode)} className="px-8 py-3 bg-white text-black font-bold flex items-center gap-2 hover:scale-105 transition-transform"><RotateCcw size={20}/> RESTART</button></div>)}
+                   </div>
+                </div>
+
+                <div className="h-[35vh] md:h-auto md:w-96 bg-slate-900 border-t md:border-t-0 md:border-l border-slate-800 flex flex-col shadow-2xl z-20">
+                    <div className="p-3 bg-slate-900/50 border-b border-slate-800 grid grid-cols-2 gap-2 text-xs">
+                        {players.map(p => {
+                            const w = units.find(u => u.owner === p.id && u.type === 'WARRIOR');
+                            const s = units.find(u => u.owner === p.id && u.type === 'SCOUT');
+                            const a = units.find(u => u.owner === p.id && u.type === 'ASSASSIN');
+                            const wdmg = w ? (UNIT_TYPES.WARRIOR.atk * (w.buffs?.doubleDamage ? 2 : 1)) : 0;
+                            return (
+                                <div key={p.id} className={`p-2 rounded bg-slate-800/80 border ${p.isAlive ? 'border-slate-700 shadow-sm' : 'border-red-900/20 opacity-40'}`}>
+                                    <div className={`font-bold ${p.text} mb-1 flex justify-between`}><span>{p.name}</span> {!p.isAlive && <Skull size={12}/>}</div>
+                                    {p.isAlive ? (
+                                        <div className="space-y-1">
+                                            <div className="flex justify-between text-[10px]"><span className="flex items-center gap-1 text-slate-400"><Sword size={10}/> 戰士 HP</span><span className={w ? (w.hp < 3 ? 'text-red-400' : 'text-slate-200') : 'text-slate-600'}>{w ? w.hp : 'X'} <span className="text-[9px] text-slate-500 font-mono">({wdmg})</span></span></div>
+                                            <div className="flex justify-between text-[10px]"><span className="flex items-center gap-1 text-slate-400"><Eye size={10}/> 偵查 HP</span><span className={s ? 'text-slate-300' : 'text-slate-600'}>{s ? s.hp : 'X'}</span></div>
+                                            {gameMode === 'ASSASSIN' && (<div className="flex justify-between text-[10px]"><span className="flex items-center gap-1 text-slate-400"><Ghost size={10}/> 刺客 HP</span><span className={a ? 'text-slate-300' : 'text-slate-600'}>{a ? a.hp : 'X'}</span></div>)}
+                                        </div>
+                                    ) : <div className="text-center text-slate-600 py-1 text-[10px]">陣營陷落</div>}
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div className="h-24 p-2 overflow-y-auto border-b border-slate-800 text-[10px] font-mono bg-black/40">
+                        {logs.map((log, i) => (<div key={i} className={`mb-1 pl-2 border-l-2 ${log.type==='system'?'border-slate-700 text-slate-400':'border-yellow-500 text-yellow-300'}`}>{log.text}</div>))}
+                    </div>
+
+                    {aiAdvice && <div className="bg-indigo-900/40 p-2 text-xs text-indigo-100 border-b border-indigo-500/20 font-bold animate-pulse flex items-center gap-2"><Cpu size={12} className="text-indigo-400"/> 軍師建議：{aiAdvice}</div>}
+
+                    <div className="flex-1 p-4 overflow-y-auto space-y-4">
+                        {selectedUnit ? (
+                            <div className="bg-slate-800/80 p-4 rounded-xl border border-slate-700 shadow-lg animate-in zoom-in-95">
+                                <div className="flex justify-between items-center mb-3 border-b border-slate-700 pb-2">
+                                    <span className="font-black flex items-center gap-2 text-white">
+                                        {selectedUnit.type === 'WARRIOR' && <Sword className="text-red-400" size={18}/>}
+                                        {selectedUnit.type === 'SCOUT' && <Eye className="text-blue-400" size={18}/>}
+                                        {selectedUnit.type === 'ASSASSIN' && <Ghost className="text-purple-400" size={18}/>}
+                                        {UNIT_TYPES[selectedUnit.type].name}
+                                    </span>
+                                    {!isBotThinking && <button onClick={resetSelection} className="text-slate-500 hover:text-white transition-colors"><X size={16}/></button>}
+                                </div>
+                                <div className="flex gap-2 mb-4">
+                                     <div className="bg-slate-950 px-2 py-1 rounded text-xs text-slate-400 border border-slate-700">HP: <span className="text-white font-bold">{selectedUnit.hp}</span></div>
+                                     {selectedUnit.buffs?.doubleDamage && <div className="bg-orange-950/50 text-orange-400 px-2 py-1 rounded text-[10px] flex items-center gap-1 border border-orange-900/30"><Flame size={10}/> 狂暴</div>}
+                                     {selectedUnit.buffs?.stealth && <div className="bg-cyan-950/50 text-cyan-400 px-2 py-1 rounded text-[10px] flex items-center gap-1 border border-cyan-900/30"><Ghost size={10}/> 隱身</div>}
+                                </div>
+                                {!isBotThinking && !selectedUnit.hasActed && currentPlayer.id === selectedUnit.owner && (
+                                    (selectedUnit.type === 'WARRIOR' || selectedUnit.type === 'ASSASSIN') ? (
+                                        <div className="space-y-3">
+                                            <button onClick={prepareAttack} className={`w-full py-2.5 rounded font-black text-sm transition-all shadow-md ${isAttacking ? 'bg-red-600 text-white ring-2 ring-white/20' : 'bg-red-500/10 text-red-400 border border-red-500/40 hover:bg-red-500/20'}`}>⚔️ 發起攻擊</button>
+                                            <div className="text-[9px] text-slate-500 text-center uppercase tracking-[0.2em] font-bold">移動或攻擊 只能擇一</div>
+                                        </div>
+                                    ) : <div className="text-xs text-slate-400 text-center py-3 bg-slate-950/50 rounded border border-slate-800">後勤兵種：請進行移動獲取晶片</div>
+                                )}
+                                {selectedUnit.hasActed && <div className="text-center text-[10px] text-slate-600 font-bold uppercase tracking-widest py-2 bg-black/20 rounded">回合行動完成</div>}
+                            </div>
+                        ) : <div className="text-slate-700 text-center py-10 text-sm border-2 border-dashed border-slate-800 rounded-xl font-bold uppercase tracking-wider">選擇部署單位</div>}
+
+                        {!isBotThinking && currentPlayer.id === 0 && (
+                            <div className="mt-auto">
+                                <div className="flex justify-between items-center mb-2"><h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">戰術晶片列表</h3><span className="text-[9px] bg-slate-800 px-2 rounded-full text-slate-400">{currentPlayer.cards.length}</span></div>
+                                <div className="grid gap-2 max-h-[160px] overflow-y-auto pr-1">
+                                    {currentPlayer.cards.length === 0 && <div className="text-slate-800 text-[10px] text-center py-4 font-bold border border-slate-800/30 rounded italic">無可用晶片</div>}
+                                    {currentPlayer.cards.map((card, idx) => (
+                                        <button key={idx} onClick={() => startCardUse(card, idx)} disabled={selectedCard!==null} className={`flex items-center gap-3 p-2 rounded-lg border border-slate-800 bg-slate-800/30 hover:border-cyan-500/50 transition-all text-left ${selectedCard?.index===idx?'ring-2 ring-yellow-400 bg-yellow-900/10':''}`}>
+                                            <div className="p-2 bg-slate-950 rounded text-cyan-400 shadow-inner"><card.icon size={14}/></div>
+                                            <div><div className="font-bold text-xs text-slate-200">{card.name}</div><div className="text-[9px] text-slate-500">{card.desc}</div></div>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+              </main>
+            </div>
+          );
+        }
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
