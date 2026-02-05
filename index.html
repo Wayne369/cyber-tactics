@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>四國戰棋：戰術指南詳解版</title>
+    <title>Cyber_tactics</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Babel for JSX -->
@@ -21,7 +21,10 @@
     </script>
 
     <style>
-        body { background-color: #020617; color: white; overflow: hidden; touch-action: manipulation; }
+        body { background-color: #020617; color: white; touch-action: manipulation; }
+        .rules-container {
+            -webkit-overflow-scrolling: touch; /* 優化 iOS 的捲動手感 */
+        }
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #0f172a; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
