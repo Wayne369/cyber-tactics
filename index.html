@@ -319,7 +319,7 @@
           };
 
           const quitGame = () => { setView('MENU'); setIsBotThinking(false); if(audioEnabled) playSound('ui_cancel'); };
-          const addLog = (msg, type = 'system') => { setLogs(prev => [{ text: msg, type }, ...prev].slice(0, 8)); };
+          const addLog = (msg, type = 'system') => { setLogs(prev => [{ text: msg, type }, ...prev].slice(8)); };
 
           const updateGameState = (updates) => {
             if (updates.units) setUnits(updates.units);
@@ -465,8 +465,9 @@
                   setValidTargets(visibleEnemies.map(u => ({ type: 'UNIT_DMG', id: u.id, x: u.x, y: u.y })));
               } else if (card.effect === 'BASE_HEAL') {
                   const myBase = bases.find(b => b.owner === turn);
-                  if (myBase.hp >= BASE_HP) { addLog('大本營血量沒有減少，不能使用'); if(audioEnabled) playSound('error'); setSelectedCard(null); return; }
-                  updateGameState({ bases: bases.map(b => b.owner === turn ? {...b, hp: Math.min(b.hp + 5, BASE_HP + 5)} : b) });
+                  // 修改: 檢查是否小於最大上限 15，而非初始 10
+                  if (myBase.hp >= 15) { addLog('大本營血量已達上限，不能使用'); if(audioEnabled) playSound('error'); setSelectedCard(null); return; }
+                  updateGameState({ bases: bases.map(b => b.owner === turn ? {...b, hp: Math.min(b.hp + 5, 15)} : b) });
                   consumeCard(index);
                   setSelectedCard(null);
               }
@@ -684,6 +685,21 @@
             if (isValidMove) bgColor = 'bg-cyan-500/20 shadow-[inset_0_0_10px_rgba(6,182,212,0.5)] cursor-pointer';
             if (isValidTarget) bgColor = 'bg-rose-500/30 shadow-[inset_0_0_15px_rgba(244,63,94,0.6)] cursor-pointer animate-pulse';
 
+            // 血量條計算
+            let hpBar = null;
+            if (unitToRender) {
+                const baseHp = UNIT_TYPES[unitToRender.type].hp;
+                const hpPercent = Math.min(100, (unitToRender.hp / baseHp) * 100);
+                const shieldPercent = unitToRender.hp > baseHp ? ((unitToRender.hp - baseHp) / baseHp) * 100 : 0;
+                
+                hpBar = (
+                     <div className="w-9 h-1 bg-slate-800 mt-1 rounded-full border border-slate-600 overflow-hidden relative">
+                        <div className={`h-full absolute top-0 left-0 transition-all ${unitToRender.hp <= 2 ? 'bg-red-500' : 'bg-green-400'}`} style={{ width: `${hpPercent}%` }}/>
+                        {shieldPercent > 0 && <div className="h-full absolute top-0 left-0 bg-cyan-400/80 shadow-[0_0_5px_rgba(34,211,238,0.8)]" style={{ width: `${Math.min(100, shieldPercent)}%` }}/>}
+                    </div>
+                );
+            }
+
             return (
               <div key={`${x}-${y}`} onClick={() => handleCellClick(x, y)} className={`w-full aspect-square border border-slate-700/50 relative flex items-center justify-center ${bgColor} transition-all duration-300 backdrop-blur-sm`}>
                 <div className="absolute top-0 left-0 w-1 h-1 bg-slate-600/30"></div>
@@ -700,9 +716,7 @@
                       {unitToRender.type === 'SCOUT' && <Eye size={18} />}
                       {unitToRender.type === 'ASSASSIN' && <Ghost size={18} />}
                     </div>
-                    <div className="w-9 h-1 bg-slate-800 mt-1 rounded-full border border-slate-600 overflow-hidden">
-                        <div className={`h-full transition-all ${unitToRender.hp <= 2 ? 'bg-red-500' : 'bg-green-400'}`} style={{ width: `${Math.min(100, (unitToRender.hp / UNIT_TYPES[unitToRender.type].hp) * 100)}%` }}/>
-                    </div>
+                    {hpBar}
                   </div>
                 )}
                 {isValidMove && !unitToRender && <div className="w-2 h-2 bg-cyan-400 rounded-full animate-ping"></div>}
@@ -809,17 +823,23 @@
                 <div className="md:w-96 bg-slate-900 border-t md:border-t-0 md:border-l border-slate-800 flex flex-col shadow-2xl z-20">
                     <div className="p-3 bg-slate-900/50 border-b border-slate-800 grid grid-cols-2 gap-2 text-xs">
                         {players.map(p => {
-                            const w = units.find(u => u.owner === p.id && u.type === 'WARRIOR');
-                            const s = units.find(u => u.owner === p.id && u.type === 'SCOUT');
-                            const a = units.find(u => u.owner === p.id && u.type === 'ASSASSIN');
+                            // 輔助函式：取得單位狀態（存活顯示HP，死亡顯示復活倒數）
+                            const getUnitStatus = (type) => {
+                                const alive = units.find(u => u.owner === p.id && u.type === type);
+                                if (alive) return `HP: ${alive.hp}`;
+                                const dead = deadUnits.find(u => u.owner === p.id && u.type === type);
+                                if (dead) return `復活: ${Math.max(1, dead.respawnRound - round)}T`;
+                                return 'X';
+                            };
+
                             return (
                                 <div key={p.id} className={`p-2 rounded bg-slate-800/80 border ${p.isAlive ? 'border-slate-700 shadow-sm' : 'border-red-900/20 opacity-40'}`}>
                                     <div className={`font-bold ${p.text} mb-1`}>{p.name}</div>
                                     {p.isAlive ? (
                                         <div className="space-y-1">
-                                            <div className="text-[10px] text-slate-400">戰士 HP: {w ? w.hp : 'X'}</div>
-                                            <div className="text-[10px] text-slate-400">偵查 HP: {s ? s.hp : 'X'}</div>
-                                            {gameMode === 'ASSASSIN' && <div className="text-[10px] text-slate-400">刺客 HP: {a ? a.hp : 'X'}</div>}
+                                            <div className="text-[10px] text-slate-400">戰士 {getUnitStatus('WARRIOR')}</div>
+                                            <div className="text-[10px] text-slate-400">偵查 {getUnitStatus('SCOUT')}</div>
+                                            {gameMode === 'ASSASSIN' && <div className="text-[10px] text-slate-400">刺客 {getUnitStatus('ASSASSIN')}</div>}
                                         </div>
                                     ) : <div className="text-slate-600 text-[10px] py-1">陣營陷落</div>}
                                 </div>
