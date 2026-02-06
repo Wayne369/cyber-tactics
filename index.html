@@ -42,9 +42,8 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Sword, Eye, Castle, Zap, Heart, Shield, Footprints, X, Cpu, Sparkles, ScrollText, Play, RotateCcw, ChevronLeft, User, AlertTriangle, Flame, Plus, Volume2, VolumeX, Skull, Ghost, VenetianMask, Info, Target, Timer, Wifi, WifiOff, Copy, Link } from 'lucide-react';
+        import { Sword, Eye, Castle, Zap, Heart, Shield, Footprints, X, Cpu, Sparkles, ScrollText, Play, RotateCcw, ChevronLeft, User, AlertTriangle, Flame, Plus, Volume2, VolumeX, Skull, Ghost, VenetianMask, Info, Target, Timer, Wifi, WifiOff, Copy, Link, Map, Crosshair } from 'lucide-react';
 
-        // --- Gemini API (若無 Key 則跳過) ---
         const GEMINI_API_KEY = ""; 
         const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
@@ -59,10 +58,10 @@
           gainNode.connect(audioCtx.destination);
           const now = audioCtx.currentTime;
 
-          // 簡單音效定義
           const sounds = {
             move: () => { osc.frequency.setValueAtTime(300, now); osc.frequency.exponentialRampToValueAtTime(50, now + 0.15); gainNode.gain.setValueAtTime(0.2, now); gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15); osc.stop(now + 0.15); },
             attack: () => { osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, now); osc.frequency.exponentialRampToValueAtTime(40, now + 0.2); gainNode.gain.setValueAtTime(0.2, now); osc.stop(now + 0.2); },
+            stealth: () => { osc.type = 'sine'; osc.frequency.setValueAtTime(1200, now); osc.frequency.linearRampToValueAtTime(400, now + 0.4); gainNode.gain.setValueAtTime(0, now); gainNode.gain.linearRampToValueAtTime(0.1, now + 0.1); gainNode.gain.linearRampToValueAtTime(0, now + 0.4); osc.stop(now + 0.4); },
             respawn: () => { osc.type = 'triangle'; osc.frequency.setValueAtTime(200, now); osc.frequency.linearRampToValueAtTime(800, now + 0.5); gainNode.gain.setValueAtTime(0.2, now); gainNode.gain.linearRampToValueAtTime(0, now + 0.5); osc.stop(now + 0.5); },
             card: () => { osc.frequency.setValueAtTime(880, now); osc.frequency.exponentialRampToValueAtTime(1760, now + 0.3); gainNode.gain.setValueAtTime(0.1, now); osc.stop(now + 0.3); },
             damage: () => { osc.type = 'square'; osc.frequency.setValueAtTime(80, now); gainNode.gain.setValueAtTime(0.3, now); gainNode.gain.linearRampToValueAtTime(0, now + 0.2); osc.stop(now + 0.2); },
@@ -113,12 +112,11 @@
         }
 
         function App() {
-          // --- 基礎狀態 ---
           const [view, setView] = useState('MENU');
-          const [gameMode, setGameMode] = useState('STANDARD'); 
+          const [selectedMode, setSelectedMode] = useState('STANDARD'); // MENU UI 選擇的模式
+          const [gameMode, setGameMode] = useState('STANDARD'); // 實際遊戲運行的模式
           const [gridSize, setGridSize] = useState(8);
           
-          // --- 遊戲資料狀態 ---
           const [turn, setTurn] = useState(0);
           const [round, setRound] = useState(1);
           const [players, setPlayers] = useState([]);
@@ -130,7 +128,6 @@
           const [gameOver, setGameOver] = useState(false);
           const [audioEnabled, setAudioEnabled] = useState(true);
 
-          // --- 互動狀態 ---
           const [selectedUnitId, setSelectedUnitId] = useState(null);
           const [validMoves, setValidMoves] = useState([]);
           const [validTargets, setValidTargets] = useState([]);
@@ -140,31 +137,28 @@
           const [aiAdvice, setAiAdvice] = useState(null);
           const [isAiAdvising, setIsAiAdvising] = useState(false);
 
-          // --- 連線狀態 (Multiplayer) ---
           const [isMultiplayer, setIsMultiplayer] = useState(false);
           const [isHost, setIsHost] = useState(false);
           const [peer, setPeer] = useState(null);
           const [conn, setConn] = useState(null);
           const [myPeerId, setMyPeerId] = useState('');
           const [connectToId, setConnectToId] = useState('');
-          const [myPlayerId, setMyPlayerId] = useState(0); // 0=Red(Host), 1=Blue(Client)
-          const [connectionStatus, setConnectionStatus] = useState('DISCONNECTED'); // DISCONNECTED, CONNECTING, CONNECTED
+          const [myPlayerId, setMyPlayerId] = useState(0); 
+          const [connectionStatus, setConnectionStatus] = useState('DISCONNECTED'); 
 
           const currentPlayer = players[turn] || PLAYERS[0];
           const selectedUnit = units.find(u => u.id === selectedUnitId);
           const gameStateRef = useRef({ units, bases, items, players, gameOver, deadUnits, round, gridSize, turn });
 
-          // 同步 Ref
           useEffect(() => {
             gameStateRef.current = { units, bases, items, players, gameOver, deadUnits, round, gridSize, turn };
           }, [units, bases, items, players, gameOver, deadUnits, round, gridSize, turn]);
 
-          // --- PeerJS 連線邏輯 ---
           useEffect(() => {
             return () => { if(peer) peer.destroy(); };
           }, []);
 
-          const startMultiplayer = (role) => {
+          const startMultiplayer = (role, modeToStart) => {
               if(audioEnabled) playSound('ui_click');
               const newPeer = new window.Peer();
               setPeer(newPeer);
@@ -175,13 +169,12 @@
                   if (role === 'HOST') {
                       setIsHost(true);
                       setMyPlayerId(0);
-                      // 等待連線
                       newPeer.on('connection', (c) => {
-                          setupConnection(c, true);
+                          setupConnection(c, true, modeToStart);
                       });
                   } else {
                       setIsHost(false);
-                      setMyPlayerId(1); // Client 扮演藍隊
+                      setMyPlayerId(1);
                   }
               });
 
@@ -195,10 +188,10 @@
               if (!peer || !connectToId) return;
               if(audioEnabled) playSound('ui_click');
               const c = peer.connect(connectToId);
-              setupConnection(c, false);
+              setupConnection(c, false, null);
           };
 
-          const setupConnection = (c, isHostSide) => {
+          const setupConnection = (c, isHostSide, modeToStart) => {
               setConn(c);
               c.on('open', () => {
                   setConnectionStatus('CONNECTED');
@@ -206,12 +199,9 @@
                   if(audioEnabled) playSound('connect');
                   
                   if (isHostSide) {
-                      // 房主：開始遊戲並同步初始狀態
-                      initGame('STANDARD'); 
-                      // 注意：initGame 會更新 state，這裡需要延遲一下確保 state 更新後再送出
+                      initGame(modeToStart); 
                       setTimeout(() => broadcastState(), 500); 
                   } else {
-                      // 客端：等待 SYNC
                       setView('GAME');
                   }
               });
@@ -227,10 +217,8 @@
               });
           };
 
-          // --- 網路封包處理 ---
           const handleNetworkData = (data, amIHost) => {
               if (data.type === 'SYNC') {
-                  // Client 接收狀態同步
                   if (!amIHost) {
                       const s = data.state;
                       setUnits(s.units);
@@ -243,19 +231,16 @@
                       setGameOver(s.gameOver);
                       setLogs(prev => s.lastLog ? [{text: s.lastLog.text, type: s.lastLog.type}, ...prev].slice(0,8) : prev);
                       setGridSize(s.gridSize);
-                      // Client 也要播放音效
+                      setGameMode(s.gameMode); // 同步遊戲模式
                       if(data.sound && audioEnabled) playSound(data.sound);
                   }
               } else if (amIHost) {
-                  // Host 接收動作請求
                   handleClientRequest(data);
               }
           };
 
           const handleClientRequest = async (req) => {
-              // 驗證回合
-              if (gameStateRef.current.turn !== 1) return; // 不是藍隊回合不理會
-              
+              if (gameStateRef.current.turn !== 1) return;
               if (req.type === 'REQ_MOVE') {
                   await performMove(req.unitId, req.x, req.y);
               } else if (req.type === 'REQ_ATTACK') {
@@ -263,7 +248,6 @@
               } else if (req.type === 'REQ_END_TURN') {
                   nextTurn();
               } else if (req.type === 'REQ_CARD') {
-                  // Client 使用卡片
                   applyCardEffect(req.cardIndex, req.target, 1);
               }
           };
@@ -283,41 +267,31 @@
                       round: state.round,
                       gameOver: state.gameOver,
                       gridSize: state.gridSize,
+                      gameMode: gameMode, // 廣播當前模式
                       lastLog: logMsg ? {text: logMsg, type: 'system'} : null
                   },
                   sound: soundEffect
               });
           };
 
-          // --- 遊戲邏輯 ---
-
-          // 判斷是否是我(本地玩家)的回合與權限
           const canControl = () => {
               if (gameOver || isBotThinking) return false;
               if (isMultiplayer) {
-                  return turn === myPlayerId; // 只有輪到我且操控我的單位時
+                  return turn === myPlayerId; 
               }
-              return !players[turn].isBot; // 單機模式：輪到非電腦玩家
+              return !players[turn].isBot; 
           };
 
-          // AI / Client Bot Loop
           useEffect(() => {
             if (view === 'GAME' && !gameOver) {
                 const currentP = players[turn];
                 if (!currentP) return;
-
                 if (isMultiplayer) {
-                    if (isHost) {
-                        // Host 負責跑綠隊(2)和黃隊(3)的 AI
-                        if (currentP.id === 2 || currentP.id === 3) {
-                            runBotTurn();
-                        }
-                    }
-                } else {
-                    // 單機模式：跑所有 Bot
-                    if (currentP.isBot) {
+                    if (isHost && (currentP.id === 2 || currentP.id === 3)) {
                         runBotTurn();
                     }
+                } else {
+                    if (currentP.isBot) runBotTurn();
                 }
             }
           }, [turn, gameOver, view]);
@@ -355,22 +329,18 @@
             }
 
             const deck = mode === 'ASSASSIN' ? ASSASSIN_CARDS : BASE_CARDS;
-            // 單機或連線：配置 Player 屬性
             const initialPlayers = PLAYERS.map(p => {
                 const hand = [];
                 for(let i=0; i<3; i++) hand.push(deck[Math.floor(Math.random() * deck.length)]);
-                
-                // 連線模式強制設定：0是Host(人), 1是Client(人), 2,3是Bot
                 let isBot = p.id > 1; 
-                if (!isMultiplayer && p.id === 1) isBot = true; // 單機時 1 也是 Bot
-
+                if (!isMultiplayer && p.id === 1) isBot = true; 
                 return { ...p, isAlive: true, cards: hand, isBot: isBot };
             });
 
             setBases(newBases);
             setUnits(newUnits);
             setItems([{ x: Math.floor(size/2), y: Math.floor(size/2), type: 'CARD' }, { x: Math.floor(size/2)-1, y: Math.floor(size/2)-1, type: 'CARD' }]);
-            setLogs([{ text: '遊戲開始！', type: 'system' }]);
+            setLogs([{ text: mode === 'ASSASSIN' ? '刺客模式啟動！' : '標準戰役開始！', type: 'system' }]);
             setPlayers(initialPlayers);
             setDeadUnits([]);
             setTurn(0);
@@ -387,7 +357,6 @@
               setLogs(prev => [{ text: msg, type }, ...prev].slice(0, 8)); 
           };
 
-          // 核心狀態更新 (Host 廣播)
           const updateGameState = (updates, sound = null, logMsg = null) => {
               if (updates.units) setUnits(updates.units);
               if (updates.players) setPlayers(updates.players);
@@ -396,7 +365,6 @@
               if (updates.deadUnits) setDeadUnits(updates.deadUnits);
               if (updates.gameOver !== undefined) setGameOver(updates.gameOver);
               
-              // 先更新 ref 確保廣播數據正確
               gameStateRef.current = { ...gameStateRef.current, ...updates };
 
               if (isMultiplayer && isHost) {
@@ -439,7 +407,6 @@
           };
 
           const performMove = async (unitId, x, y) => {
-             // Client 模式下，攔截操作發送請求
              if (isMultiplayer && !isHost) {
                  conn.send({ type: 'REQ_MOVE', unitId, x, y });
                  return;
@@ -464,7 +431,7 @@
                  stateUpdates.players = newPlayers;
                  stateUpdates.items = newItems;
              }
-             updateGameState(stateUpdates, 'move'); // 帶入音效標記給 Client
+             updateGameState(stateUpdates, 'move'); 
           };
 
           const performAttack = async (attackerId, targetId, targetType) => {
@@ -519,7 +486,6 @@
             updateGameState(updates, 'win');
           };
 
-          // 統一處理卡片效果 (Host 與 Client REQ 共用)
           const applyCardEffect = (cardIndex, target, playerId) => {
               const p = gameStateRef.current.players[playerId];
               if (!p || !p.cards[cardIndex]) return;
@@ -552,7 +518,6 @@
                   sound = 'attack';
               }
 
-              // 消耗卡片
               const newPlayers = [...gameStateRef.current.players];
               newPlayers[playerId].cards.splice(cardIndex, 1);
               updates.players = newPlayers;
@@ -562,17 +527,15 @@
               updateGameState(updates, sound);
           };
 
-          // UI 點擊卡片發動 (Client 只做 UI 選擇)
           const startCardUse = (card, index) => {
               if (gameOver || isBotThinking || !canControl()) return;
               if (audioEnabled) playSound('card');
               
               const myUnits = units.filter(u => u.owner === turn);
               
-              // 立即生效類卡片 (Buff DMG, Base Heal)
               if (card.effect === 'BUFF_DMG') {
                   if (isMultiplayer && !isHost) {
-                       conn.send({ type: 'REQ_CARD', cardIndex: index, target: { type: 'SELF' } }); // 簡化處理，Buff DMG 其實不需要目標
+                       conn.send({ type: 'REQ_CARD', cardIndex: index, target: { type: 'SELF' } });
                        return;
                   }
                   const newUnits = units.map(u => (u.owner === turn && (u.type === 'WARRIOR' || u.type === 'ASSASSIN')) ? { ...u, buffs: { ...u.buffs, doubleDamage: true } } : u);
@@ -600,12 +563,10 @@
                   return;
               }
 
-              // 需要選目標的卡片
               setSelectedCard({ card, index });
               setValidMoves([]);
               resetSelection();
 
-              // 設定可選目標 (UI 顯示用，不影響 State)
               if (card.effect === 'BUFF_HP') {
                   setValidTargets(myUnits.filter(u => u.type === 'WARRIOR').map(u => ({ type: 'UNIT_BUFF_HP', id: u.id, x: u.x, y: u.y })));
               } else if (card.effect === 'BUFF_STEALTH') {
@@ -620,15 +581,12 @@
 
           const handleCardTargetClick = (target) => {
               if (!selectedCard) return;
-              
               if (isMultiplayer && !isHost) {
                   conn.send({ type: 'REQ_CARD', cardIndex: selectedCard.index, target });
                   setSelectedCard(null);
                   setValidTargets([]);
                   return;
               }
-
-              // Host or Singleplayer
               applyCardEffect(selectedCard.index, target, turn);
               setSelectedCard(null);
               setValidTargets([]);
@@ -656,7 +614,6 @@
                 return { ...u, hasActed: false, buffs: newBuffs };
             });
             
-            // 先更新部分狀態
             updateGameState({ units: newUnits }); 
             setTurn(nextPlayerId);
             
@@ -665,8 +622,6 @@
                 spawnRandomItem(); 
             }
             checkRespawns(nextPlayerId);
-            
-            // 重要：通知 Client 回合變更
             updateGameState({ turn: nextPlayerId }, 'turn_start');
           };
 
@@ -690,18 +645,17 @@
 
           const runBotTurn = async () => {
             setIsBotThinking(true);
-            const botId = turn; // 當前 AI ID
+            const botId = turn; 
             await sleep(600);
             const myUnitIds = gameStateRef.current.units.filter(u => u.owner === botId).map(u => u.id);
             for (const unitId of myUnitIds) {
               const currentUnit = gameStateRef.current.units.find(u => u.id === unitId);
               if (!currentUnit) continue; 
-              setSelectedUnitId(currentUnit.id); // UI 效果：顯示 AI 正在選這個
+              setSelectedUnitId(currentUnit.id); 
               await sleep(300);
               const { units: currUnits, bases: currBases, items: currItems, gridSize: size } = gameStateRef.current;
               let actionTaken = false;
               
-              // 攻擊邏輯
               if (currentUnit.type === 'WARRIOR' || currentUnit.type === 'ASSASSIN') {
                   const adjacents = [{x:currentUnit.x+1,y:currentUnit.y},{x:currentUnit.x-1,y:currentUnit.y},{x:currentUnit.x,y:currentUnit.y+1},{x:currentUnit.x,y:currentUnit.y-1}];
                   let attackTarget = null, targetType = null;
@@ -713,7 +667,6 @@
                   }
                   if (attackTarget) { await performAttack(currentUnit.id, attackTarget.id, targetType); actionTaken = true; await sleep(300); }
               }
-              // 移動邏輯
               if (!actionTaken) {
                   let target = null;
                   if (currentUnit.type === 'SCOUT' && currItems.length > 0) target = currItems.reduce((n, i) => (!n || getDistance(currentUnit, i) < getDistance(currentUnit, n)) ? i : n, null);
@@ -746,14 +699,13 @@
 
           const handleSelectUnit = (unit) => {
             if (gameOver || isBotThinking || view !== 'GAME') return;
-            if (!canControl()) return; // 檢查控制權
+            if (!canControl()) return; 
             if (unit.owner !== turn || unit.hasActed || selectedCard) return;
             
             if(audioEnabled) playSound('ui_click');
             setSelectedUnitId(unit.id);
             setIsAttacking(false);
             
-            // 計算移動範圍
             const moves = [];
             const range = UNIT_TYPES[unit.type].moveRange;
             const size = gameStateRef.current.gridSize;
@@ -788,7 +740,7 @@
 
           const handleCellClick = (x, y) => {
             if (gameOver || isBotThinking || view !== 'GAME') return;
-            if (!canControl()) return; // 若非我方回合，點擊無效
+            if (!canControl()) return; 
 
             if (selectedCard) {
                 const t = validTargets.find(v => v.x === x && v.y === y);
@@ -828,7 +780,7 @@
             const isSelected = unit && unit.id === selectedUnitId;
             const isValidMove = validMoves.some(m => m.x === x && m.y === y);
             const isValidTarget = validTargets.some(t => t.x === x && t.y === y);
-            const isHidden = unit && unit.owner !== myPlayerId && unit.buffs?.stealth; // 連線修正：只能看到自己的隱形單位
+            const isHidden = unit && unit.owner !== myPlayerId && unit.buffs?.stealth; 
             const unitToRender = isHidden ? null : unit;
 
             let bgColor = 'bg-slate-900/80';
@@ -882,12 +834,21 @@
                           <div className="relative inline-block"><Castle size={80} className="text-cyan-400 relative z-10" /></div>
                           <div className="space-y-2"><h1 className="text-5xl md:text-7xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500">四國戰棋</h1><p className="text-cyan-200/60 text-lg tracking-[0.5em] uppercase font-bold">Cyber Tactics</p></div>
                           
-                          {/* 模式選擇 */}
                           {!peer ? (
                             <div className="flex flex-col gap-4 mx-auto w-full">
-                                <button onClick={() => { setIsMultiplayer(false); initGame('STANDARD'); }} className="group px-8 py-4 bg-cyan-600/20 border border-cyan-500/50 hover:bg-cyan-500/40 transform skew-x-[-10deg] transition-all font-bold text-lg text-cyan-100 flex items-center justify-center gap-3"><Play className="transform skew-x-[10deg]"/> <span className="transform skew-x-[10deg]">單人戰役 (Single)</span></button>
-                                <button onClick={() => { setIsMultiplayer(true); startMultiplayer('HOST'); }} className="group px-8 py-4 bg-orange-600/20 border border-orange-500/50 hover:bg-orange-500/40 transform skew-x-[-10deg] transition-all font-bold text-lg text-orange-100 flex items-center justify-center gap-3"><Wifi className="transform skew-x-[10deg]"/> <span className="transform skew-x-[10deg]">建立房間 (Host)</span></button>
-                                <button onClick={() => { setIsMultiplayer(true); startMultiplayer('CLIENT'); }} className="group px-8 py-4 bg-blue-600/20 border border-blue-500/50 hover:bg-blue-500/40 transform skew-x-[-10deg] transition-all font-bold text-lg text-blue-100 flex items-center justify-center gap-3"><Link className="transform skew-x-[10deg]"/> <span className="transform skew-x-[10deg]">加入房間 (Join)</span></button>
+                                {/* 模式選擇開關 */}
+                                <div className="flex bg-slate-800/50 p-1 rounded-lg border border-slate-700 mb-2">
+                                    <button onClick={() => setSelectedMode('STANDARD')} className={`flex-1 py-2 text-sm font-bold rounded transition-all ${selectedMode === 'STANDARD' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+                                        標準戰役 (8x8)
+                                    </button>
+                                    <button onClick={() => setSelectedMode('ASSASSIN')} className={`flex-1 py-2 text-sm font-bold rounded transition-all ${selectedMode === 'ASSASSIN' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
+                                        刺客模式 (10x10)
+                                    </button>
+                                </div>
+
+                                <button onClick={() => { setIsMultiplayer(false); initGame(selectedMode); }} className={`group px-8 py-4 bg-slate-800/50 border border-slate-600 hover:bg-slate-700 transform skew-x-[-10deg] transition-all font-bold text-lg flex items-center justify-center gap-3 ${selectedMode === 'ASSASSIN' ? 'text-purple-100 border-purple-500/30' : 'text-cyan-100 border-cyan-500/30'}`}><Play className="transform skew-x-[10deg]"/> <span className="transform skew-x-[10deg]">單人戰役 (Single)</span></button>
+                                <button onClick={() => { setIsMultiplayer(true); startMultiplayer('HOST', selectedMode); }} className="group px-8 py-4 bg-orange-600/20 border border-orange-500/50 hover:bg-orange-500/40 transform skew-x-[-10deg] transition-all font-bold text-lg text-orange-100 flex items-center justify-center gap-3"><Wifi className="transform skew-x-[10deg]"/> <span className="transform skew-x-[10deg]">建立房間 (Host)</span></button>
+                                <button onClick={() => { setIsMultiplayer(true); startMultiplayer('CLIENT', null); }} className="group px-8 py-4 bg-blue-600/20 border border-blue-500/50 hover:bg-blue-500/40 transform skew-x-[-10deg] transition-all font-bold text-lg text-blue-100 flex items-center justify-center gap-3"><Link className="transform skew-x-[10deg]"/> <span className="transform skew-x-[10deg]">加入房間 (Join)</span></button>
                                 
                                 <div className="flex gap-2 justify-center mt-4">
                                     <button onClick={() => setView('RULES')} className="px-6 py-2 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:text-white text-sm">規則說明</button>
@@ -910,7 +871,9 @@
                                                 <button onClick={() => {navigator.clipboard.writeText(myPeerId); addLog('已複製 ID')}} className="p-2 hover:bg-slate-700 rounded"><Copy size={18}/></button>
                                             </div>
                                         </div>
-                                        <div className="text-center text-sm text-slate-500 animate-pulse">請將此 ID 傳給朋友</div>
+                                        <div className="text-center text-sm text-slate-500 animate-pulse">
+                                            目前模式：<span className="text-white font-bold">{selectedMode === 'STANDARD' ? '標準 (8x8)' : '刺客 (10x10)'}</span>
+                                        </div>
                                     </div>
                                 ) : (
                                     <div className="space-y-4">
@@ -937,9 +900,52 @@
                               <h2 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500 mb-10 flex items-center gap-4 border-b border-slate-700 pb-6"><ScrollText className="text-cyan-500 w-10 h-10" /> 戰術作戰指南</h2>
                               <div className="space-y-12 text-slate-300">
                                   <section>
-                                      <h3 className="text-2xl font-bold text-white mb-4">1. 連線模式說明</h3>
-                                      <p>房主扮演 <span className="text-red-400 font-bold">紅隊</span>，加入者扮演 <span className="text-blue-400 font-bold">藍隊</span>。</p>
-                                      <p>綠隊與黃隊由房主的 AI 代管。連線時，您只能操控自己的單位。</p>
+                                      <h3 className="text-2xl font-bold text-white mb-4 flex items-center gap-3"><span className="p-2 bg-red-500/20 rounded-lg text-red-400"><User size={24}/></span> 1. 作戰目標 & 連線規則</h3>
+                                      <div className="pl-4 border-l-2 border-slate-700 space-y-3">
+                                          <p className="text-lg">指揮官，你的任務是存活到最後。</p>
+                                          <div className="grid md:grid-cols-2 gap-4 mt-4">
+                                              <div className="bg-slate-800/60 p-4 rounded-lg border border-slate-700"><div className="text-yellow-400 font-bold mb-1">👑 勝利條件</div>成為戰場上 <span className="text-white">唯一存活</span> 的陣營。</div>
+                                              <div className="bg-slate-800/60 p-4 rounded-lg border border-slate-700"><div className="text-red-400 font-bold mb-1">💀 失敗條件</div>我方 <span className="text-white">大本營 HP 歸零</span>。</div>
+                                          </div>
+                                          <div className="mt-4 p-4 bg-cyan-900/20 border border-cyan-800 rounded-lg">
+                                              <h4 className="font-bold text-cyan-400 flex gap-2 items-center"><Wifi size={16}/> 連線模式說明</h4>
+                                              <ul className="text-sm space-y-1 mt-2 text-slate-300">
+                                                  <li>• <span className="text-white font-bold">Host (房主)</span>：扮演紅隊，負責運算綠隊與黃隊 AI。</li>
+                                                  <li>• <span className="text-white font-bold">Client (客端)</span>：扮演藍隊。</li>
+                                                  <li>• 若房主選擇「刺客模式」，客端加入時將自動切換為刺客模式介面。</li>
+                                              </ul>
+                                          </div>
+                                      </div>
+                                  </section>
+                                  <section>
+                                      <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-3"><span className="p-2 bg-blue-500/20 rounded-lg text-blue-400"><Sword size={24}/></span> 2. 戰鬥單位數據庫</h3>
+                                      <div className="grid lg:grid-cols-3 gap-6">
+                                          <div className="bg-slate-800/50 p-5 rounded-xl border border-slate-700 hover:border-red-500/50 transition-colors">
+                                              <div className="flex items-center gap-3 mb-4 border-b border-slate-700 pb-3"><div className="p-2 bg-red-900/50 rounded text-red-400"><Sword size={24}/></div><div><div className="font-black text-xl text-white">戰士 (Warrior)</div><div className="text-xs text-slate-500">主力輸出 / 坦克</div></div></div>
+                                              <ul className="text-sm space-y-2"><li>❤️ 生命值：<span className="text-green-400 font-mono text-lg">6</span></li><li>⚔️ 攻擊力：<span className="text-red-400 font-mono text-lg">3</span></li><li>🦶 移動力：<span className="text-blue-400 font-mono text-lg">2 格</span></li></ul>
+                                          </div>
+                                          <div className="bg-slate-800/50 p-5 rounded-xl border border-slate-700 hover:border-blue-500/50 transition-colors">
+                                              <div className="flex items-center gap-3 mb-4 border-b border-slate-700 pb-3"><div className="p-2 bg-blue-900/50 rounded text-blue-400"><Eye size={24}/></div><div><div className="font-black text-xl text-white">偵查兵 (Scout)</div><div className="text-xs text-slate-500">資源收集 / 快速</div></div></div>
+                                              <ul className="text-sm space-y-2"><li>❤️ 生命值：<span className="text-green-400 font-mono text-lg">3</span></li><li>⚔️ 攻擊力：<span className="text-slate-500 font-mono">無法攻擊</span></li><li>🦶 移動力：<span className="text-blue-400 font-mono text-lg">2 格</span></li><li className="text-cyan-300 mt-2 text-xs">用途：佔領機遇卡 <Zap size={10} className="inline"/>。</li></ul>
+                                          </div>
+                                          <div className="bg-slate-800/50 p-5 rounded-xl border border-slate-700 hover:border-purple-500/50 transition-colors relative overflow-hidden">
+                                              <div className="absolute top-0 right-0 bg-purple-600 text-white text-[10px] px-2 py-1 rounded-bl font-bold">刺客模式限定</div>
+                                              <div className="flex items-center gap-3 mb-4 border-b border-slate-700 pb-3"><div className="p-2 bg-purple-900/50 rounded text-purple-400"><Ghost size={24}/></div><div><div className="font-black text-xl text-white">刺客 (Assassin)</div><div className="text-xs text-slate-500">高機動 / 奇襲</div></div></div>
+                                              <ul className="text-sm space-y-2"><li>❤️ 生命值：<span className="text-green-400 font-mono text-lg">4</span></li><li>⚔️ 攻擊力：<span className="text-red-400 font-mono text-lg">2</span></li><li>🦶 移動力：<span className="text-blue-400 font-mono text-lg">3 格</span></li></ul>
+                                          </div>
+                                      </div>
+                                  </section>
+                                  <section>
+                                      <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-3"><span className="p-2 bg-yellow-500/20 rounded-lg text-yellow-400"><Zap size={24}/></span> 3. 戰術晶片 (機遇卡)</h3>
+                                      <p className="mb-4 text-slate-400">偵查兵踩到閃電格 <Zap size={14} className="inline text-yellow-400"/> 可獲得，開局隨機 3 張。</p>
+                                      <div className="grid md:grid-cols-2 gap-4">
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700"><div className="p-2 bg-green-900/50 text-green-400 rounded shrink-0"><Heart size={20}/></div><div><div className="font-bold text-green-300">急救包</div><div className="text-xs text-slate-400">恢復單位 3 HP。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700"><div className="p-2 bg-red-900/50 text-red-400 rounded shrink-0"><Target size={20}/></div><div><div className="font-bold text-red-300">狙擊</div><div className="text-xs text-slate-400">全圖攻擊敵方單位造成 2 傷害。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700"><div className="p-2 bg-blue-900/50 text-blue-400 rounded shrink-0"><Shield size={20}/></div><div><div className="font-bold text-blue-300">基地護盾</div><div className="text-xs text-slate-400">修復基地 5 HP (上限15)。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700"><div className="p-2 bg-orange-900/50 text-orange-400 rounded shrink-0"><Flame size={20}/></div><div><div className="font-bold text-orange-300">狂暴針劑</div><div className="text-xs text-slate-400">戰士下一次攻擊 2倍傷害。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700"><div className="p-2 bg-cyan-900/50 text-cyan-400 rounded shrink-0"><Plus size={20}/></div><div><div className="font-bold text-cyan-300">動力裝甲</div><div className="text-xs text-slate-400">戰士永久 +4 HP上限。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-purple-900/50"><div className="p-2 bg-purple-900/50 text-purple-400 rounded shrink-0"><VenetianMask size={20}/></div><div><div className="font-bold text-purple-300">隱形披風</div><div className="text-xs text-slate-400">刺客隱身 1 回合。</div></div></div>
+                                      </div>
                                   </section>
                               </div>
                           </div>
@@ -957,6 +963,7 @@
                        <div className="text-[10px] text-slate-500 uppercase font-bold tracking-widest flex items-center gap-2">
                            Turn {round} 
                            {isMultiplayer && (isHost ? <span className="text-orange-400 px-1 border border-orange-500/30 rounded">HOST</span> : <span className="text-blue-400 px-1 border border-blue-500/30 rounded">CLIENT</span>)}
+                           {!isMultiplayer && <span className="text-cyan-400 px-1 border border-cyan-500/30 rounded">SINGLE</span>}
                        </div>
                        <div className={`text-sm font-bold ${currentPlayer.text} flex items-center gap-2`}>
                            {currentPlayer.name} 
@@ -965,7 +972,6 @@
                    </div>
                 </div>
                 <div className="flex gap-2">
-                    {/* 按鈕狀態控制：如果是連線模式，只有輪到自己才能按 */}
                     <button onClick={nextTurn} disabled={!canControl()} className={`px-4 py-1.5 rounded text-sm font-bold flex items-center gap-2 transition-all ${!canControl() ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-500'}`}>結束回合 <Footprints size={14}/></button>
                 </div>
               </header>
@@ -973,9 +979,7 @@
               <main className="flex-1 flex flex-col md:flex-row relative">
                 <div className="flex-1 flex items-center justify-center p-4 bg-black">
                    <div className="relative">
-                     {/* 連線等待遮罩 */}
                      {isMultiplayer && !isHost && connectionStatus === 'CONNECTING' && <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 text-white">連線同步中...</div>}
-                     
                      <div className="grid gap-1 bg-slate-900/90 p-2 rounded-lg border border-slate-700 shadow-2xl relative z-10" style={{ gridTemplateColumns: `repeat(${gridSize}, minmax(30px, 1fr))`, width: 'min(90vw, 85vh)', maxWidth: '650px' }}>
                        {Array.from({ length: gridSize }).map((_, y) => Array.from({ length: gridSize }).map((_, x) => renderCell(x, y)))}
                      </div>
@@ -1021,7 +1025,6 @@
                             </div>
                         ) : <div className="text-slate-700 text-center py-6 text-sm border-2 border-dashed border-slate-800 rounded-xl font-bold">{canControl() ? '點擊單位進行操作' : (isMultiplayer && turn !== myPlayerId ? '等待對手行動...' : '等待電腦行動...')}</div>}
 
-                        {/* 卡片區域：只有輪到我且我是操作者時顯示 */}
                         {canControl() && currentPlayer.id === myPlayerId && (
                             <div className="mt-4">
                                 <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2">戰術晶片 ({currentPlayer.cards.length})</h3>
