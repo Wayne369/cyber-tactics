@@ -148,7 +148,6 @@
 
           const currentPlayer = players[turn] || PLAYERS[0];
           const selectedUnit = units.find(u => u.id === selectedUnitId);
-          // 加入 gameMode 到 Ref 中，解決閉包問題
           const gameStateRef = useRef({ units, bases, items, players, gameOver, deadUnits, round, gridSize, turn, gameMode });
 
           useEffect(() => {
@@ -158,6 +157,28 @@
           useEffect(() => {
             return () => { if(peer) peer.destroy(); };
           }, []);
+
+          // --- 數據還原與淨化 (解決 React 元件無法傳輸的問題) ---
+          const getDeck = (mode) => mode === 'ASSASSIN' ? ASSASSIN_CARDS : BASE_CARDS;
+
+          const sanitizeStateForNetwork = (state) => {
+              // 深拷貝並將卡片物件轉換為 ID 字串
+              const cleanPlayers = state.players.map(p => ({
+                  ...p,
+                  cards: p.cards.map(c => c.id) // 只傳送 ID
+              }));
+              return { ...state, players: cleanPlayers };
+          };
+
+          const rehydrateStateFromNetwork = (state) => {
+              const deck = getDeck(state.gameMode);
+              const hydratedPlayers = state.players.map(p => ({
+                  ...p,
+                  cards: p.cards.map(cardId => deck.find(c => c.id === cardId) || BASE_CARDS[0]) // ID 轉回物件
+              }));
+              return { ...state, players: hydratedPlayers };
+          };
+          // ----------------------------------------------------
 
           const startMultiplayer = (role, modeToStart) => {
               if(audioEnabled) playSound('ui_click');
@@ -201,7 +222,6 @@
                   
                   if (isHostSide) {
                       initGame(modeToStart); 
-                      // 這裡廣播會讀取 gameStateRef，我們在 initGame 中已經強制更新了 Ref
                       setTimeout(() => broadcastState(), 500); 
                   } else {
                       setView('GAME');
@@ -222,7 +242,9 @@
           const handleNetworkData = (data, amIHost) => {
               if (data.type === 'SYNC') {
                   if (!amIHost) {
-                      const s = data.state;
+                      // 接收端：還原數據
+                      const s = rehydrateStateFromNetwork(data.state);
+                      
                       setUnits(s.units);
                       setPlayers(s.players);
                       setBases(s.bases);
@@ -257,21 +279,25 @@
           const broadcastState = (soundEffect = null, logMsg = null) => {
               if (!conn || !isHost) return;
               const state = gameStateRef.current;
+              
+              // 發送端：淨化數據 (移除 React Icon 元件)
+              const cleanState = sanitizeStateForNetwork({
+                  units: state.units,
+                  players: state.players,
+                  bases: state.bases,
+                  items: state.items,
+                  deadUnits: state.deadUnits,
+                  turn: state.turn,
+                  round: state.round,
+                  gameOver: state.gameOver,
+                  gridSize: state.gridSize,
+                  gameMode: state.gameMode,
+                  lastLog: logMsg ? {text: logMsg, type: 'system'} : null
+              });
+
               conn.send({
                   type: 'SYNC',
-                  state: {
-                      units: state.units,
-                      players: state.players,
-                      bases: state.bases,
-                      items: state.items,
-                      deadUnits: state.deadUnits,
-                      turn: state.turn,
-                      round: state.round,
-                      gameOver: state.gameOver,
-                      gridSize: state.gridSize,
-                      gameMode: state.gameMode, // 讀取 Ref 中的 gameMode
-                      lastLog: logMsg ? {text: logMsg, type: 'system'} : null
-                  },
+                  state: cleanState,
                   sound: soundEffect
               });
           };
@@ -356,7 +382,6 @@
             setView('GAME');
             if(audioEnabled) playSound('turn_start');
 
-            // --- 關鍵修復：手動強制更新 Ref，確保 broadcastState 能讀取到最新數據 ---
             gameStateRef.current = {
                 units: newUnits,
                 bases: newBases,
