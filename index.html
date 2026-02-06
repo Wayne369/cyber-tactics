@@ -42,7 +42,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Sword, Eye, Castle, Zap, Heart, Shield, Footprints, X, Cpu, Sparkles, ScrollText, Play, RotateCcw, ChevronLeft, User, AlertTriangle, Flame, Plus, Volume2, VolumeX, Skull, Ghost, VenetianMask, Info, Target, Timer, Wifi, WifiOff, Copy, Link, Map, Crosshair } from 'lucide-react';
+        import { Sword, Eye, Castle, Zap, Heart, Shield, Footprints, X, Ghost, VenetianMask, Play, Wifi, Link, Copy, Volume2, VolumeX, ChevronLeft, ScrollText, User, Target, Flame, Plus, RotateCcw } from 'lucide-react';
 
         const GEMINI_API_KEY = ""; 
         const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -113,8 +113,8 @@
 
         function App() {
           const [view, setView] = useState('MENU');
-          const [selectedMode, setSelectedMode] = useState('STANDARD'); // MENU UI 選擇的模式
-          const [gameMode, setGameMode] = useState('STANDARD'); // 實際遊戲運行的模式
+          const [selectedMode, setSelectedMode] = useState('STANDARD'); 
+          const [gameMode, setGameMode] = useState('STANDARD'); 
           const [gridSize, setGridSize] = useState(8);
           
           const [turn, setTurn] = useState(0);
@@ -148,11 +148,12 @@
 
           const currentPlayer = players[turn] || PLAYERS[0];
           const selectedUnit = units.find(u => u.id === selectedUnitId);
-          const gameStateRef = useRef({ units, bases, items, players, gameOver, deadUnits, round, gridSize, turn });
+          // 加入 gameMode 到 Ref 中，解決閉包問題
+          const gameStateRef = useRef({ units, bases, items, players, gameOver, deadUnits, round, gridSize, turn, gameMode });
 
           useEffect(() => {
-            gameStateRef.current = { units, bases, items, players, gameOver, deadUnits, round, gridSize, turn };
-          }, [units, bases, items, players, gameOver, deadUnits, round, gridSize, turn]);
+            gameStateRef.current = { units, bases, items, players, gameOver, deadUnits, round, gridSize, turn, gameMode };
+          }, [units, bases, items, players, gameOver, deadUnits, round, gridSize, turn, gameMode]);
 
           useEffect(() => {
             return () => { if(peer) peer.destroy(); };
@@ -200,6 +201,7 @@
                   
                   if (isHostSide) {
                       initGame(modeToStart); 
+                      // 這裡廣播會讀取 gameStateRef，我們在 initGame 中已經強制更新了 Ref
                       setTimeout(() => broadcastState(), 500); 
                   } else {
                       setView('GAME');
@@ -231,7 +233,7 @@
                       setGameOver(s.gameOver);
                       setLogs(prev => s.lastLog ? [{text: s.lastLog.text, type: s.lastLog.type}, ...prev].slice(0,8) : prev);
                       setGridSize(s.gridSize);
-                      setGameMode(s.gameMode); // 同步遊戲模式
+                      setGameMode(s.gameMode);
                       if(data.sound && audioEnabled) playSound(data.sound);
                   }
               } else if (amIHost) {
@@ -267,7 +269,7 @@
                       round: state.round,
                       gameOver: state.gameOver,
                       gridSize: state.gridSize,
-                      gameMode: gameMode, // 廣播當前模式
+                      gameMode: state.gameMode, // 讀取 Ref 中的 gameMode
                       lastLog: logMsg ? {text: logMsg, type: 'system'} : null
                   },
                   sound: soundEffect
@@ -337,9 +339,11 @@
                 return { ...p, isAlive: true, cards: hand, isBot: isBot };
             });
 
+            const initialItems = [{ x: Math.floor(size/2), y: Math.floor(size/2), type: 'CARD' }, { x: Math.floor(size/2)-1, y: Math.floor(size/2)-1, type: 'CARD' }];
+
             setBases(newBases);
             setUnits(newUnits);
-            setItems([{ x: Math.floor(size/2), y: Math.floor(size/2), type: 'CARD' }, { x: Math.floor(size/2)-1, y: Math.floor(size/2)-1, type: 'CARD' }]);
+            setItems(initialItems);
             setLogs([{ text: mode === 'ASSASSIN' ? '刺客模式啟動！' : '標準戰役開始！', type: 'system' }]);
             setPlayers(initialPlayers);
             setDeadUnits([]);
@@ -351,6 +355,20 @@
             setSelectedUnitId(null);
             setView('GAME');
             if(audioEnabled) playSound('turn_start');
+
+            // --- 關鍵修復：手動強制更新 Ref，確保 broadcastState 能讀取到最新數據 ---
+            gameStateRef.current = {
+                units: newUnits,
+                bases: newBases,
+                items: initialItems,
+                players: initialPlayers,
+                gameOver: false,
+                deadUnits: [],
+                round: 1,
+                gridSize: size,
+                turn: 0,
+                gameMode: mode
+            };
           };
 
           const addLog = (msg, type = 'system') => { 
@@ -836,7 +854,6 @@
                           
                           {!peer ? (
                             <div className="flex flex-col gap-4 mx-auto w-full">
-                                {/* 模式選擇開關 */}
                                 <div className="flex bg-slate-800/50 p-1 rounded-lg border border-slate-700 mb-2">
                                     <button onClick={() => setSelectedMode('STANDARD')} className={`flex-1 py-2 text-sm font-bold rounded transition-all ${selectedMode === 'STANDARD' ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>
                                         標準戰役 (8x8)
