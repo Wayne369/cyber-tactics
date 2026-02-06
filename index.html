@@ -42,7 +42,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Sword, Eye, Castle, Zap, Heart, Shield, Footprints, X, Ghost, VenetianMask, Play, Wifi, Link, Copy, Volume2, VolumeX, ChevronLeft, ScrollText, User, Target, Flame, Plus, RotateCcw } from 'lucide-react';
+        import { Sword, Eye, Castle, Zap, Heart, Shield, Footprints, X, Ghost, VenetianMask, Play, Wifi, Link, Copy, Volume2, VolumeX, ChevronLeft, ScrollText, User, Target, Flame, Plus, RotateCcw, RefreshCw } from 'lucide-react';
 
         const GEMINI_API_KEY = ""; 
         const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -162,19 +162,21 @@
           const getDeck = (mode) => mode === 'ASSASSIN' ? ASSASSIN_CARDS : BASE_CARDS;
 
           const sanitizeStateForNetwork = (state) => {
-              // 深拷貝並將卡片物件轉換為 ID 字串
+              // 確保 players 存在
+              if (!state.players || state.players.length === 0) return state;
               const cleanPlayers = state.players.map(p => ({
                   ...p,
-                  cards: p.cards.map(c => c.id) // 只傳送 ID
+                  cards: p.cards.map(c => c.id) 
               }));
               return { ...state, players: cleanPlayers };
           };
 
           const rehydrateStateFromNetwork = (state) => {
+              if (!state.players) return state;
               const deck = getDeck(state.gameMode);
               const hydratedPlayers = state.players.map(p => ({
                   ...p,
-                  cards: p.cards.map(cardId => deck.find(c => c.id === cardId) || BASE_CARDS[0]) // ID 轉回物件
+                  cards: p.cards.map(cardId => deck.find(c => c.id === cardId) || BASE_CARDS[0]) 
               }));
               return { ...state, players: hydratedPlayers };
           };
@@ -182,6 +184,8 @@
 
           const startMultiplayer = (role, modeToStart) => {
               if(audioEnabled) playSound('ui_click');
+              // 確保每次都是全新的 Peer
+              if (peer) peer.destroy();
               const newPeer = new window.Peer();
               setPeer(newPeer);
               setConnectionStatus('CONNECTING');
@@ -221,10 +225,16 @@
                   if(audioEnabled) playSound('connect');
                   
                   if (isHostSide) {
+                      // 房主: 初始化遊戲，然後等待 Client 請求數據
                       initGame(modeToStart); 
-                      setTimeout(() => broadcastState(), 500); 
                   } else {
+                      // 客端: 切換畫面，並立刻請求同步
                       setView('GAME');
+                      // 加入延遲確保連線穩定後發送請求
+                      setTimeout(() => {
+                        c.send({ type: 'REQ_FULL_SYNC' });
+                        addLog('已連線，正在請求戰場數據...', 'system');
+                      }, 500);
                   }
               });
 
@@ -258,7 +268,15 @@
                       setGameMode(s.gameMode);
                       if(data.sound && audioEnabled) playSound(data.sound);
                   }
-              } else if (amIHost) {
+              } 
+              else if (data.type === 'REQ_FULL_SYNC') {
+                  // 房主收到請求：發送完整數據
+                  if (amIHost) {
+                      addLog('客端已加入，發送同步數據', 'system');
+                      broadcastState();
+                  }
+              }
+              else if (amIHost) {
                   handleClientRequest(data);
               }
           };
@@ -1021,7 +1039,9 @@
               <main className="flex-1 flex flex-col md:flex-row relative">
                 <div className="flex-1 flex items-center justify-center p-4 bg-black">
                    <div className="relative">
-                     {isMultiplayer && !isHost && connectionStatus === 'CONNECTING' && <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 text-white">連線同步中...</div>}
+                     {/* 連線同步中的遮罩 */}
+                     {isMultiplayer && !isHost && units.length === 0 && <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/90 text-white gap-4"><RefreshCw className="animate-spin text-cyan-400" size={40}/><div className="text-xl font-bold">正在同步戰場數據...</div><div className="text-slate-500 text-sm">請稍候，若過久無回應請重整</div></div>}
+                     
                      <div className="grid gap-1 bg-slate-900/90 p-2 rounded-lg border border-slate-700 shadow-2xl relative z-10" style={{ gridTemplateColumns: `repeat(${gridSize}, minmax(30px, 1fr))`, width: 'min(90vw, 85vh)', maxWidth: '650px' }}>
                        {Array.from({ length: gridSize }).map((_, y) => Array.from({ length: gridSize }).map((_, x) => renderCell(x, y)))}
                      </div>
