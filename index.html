@@ -225,16 +225,15 @@
                   if(audioEnabled) playSound('connect');
                   
                   if (isHostSide) {
-                      // 房主: 初始化遊戲，然後等待 Client 請求數據
+                      // 房主: 初始化遊戲
                       initGame(modeToStart); 
+                      // 移除長延遲，改為極短緩衝 (50ms) 確保狀態就緒後主動發一次
+                      setTimeout(() => broadcastState(), 50);
                   } else {
-                      // 客端: 切換畫面，並立刻請求同步
+                      // 客端: 切換畫面，並*立即*請求同步
                       setView('GAME');
-                      // 加入延遲確保連線穩定後發送請求
-                      setTimeout(() => {
-                        c.send({ type: 'REQ_FULL_SYNC' });
-                        addLog('已連線，正在請求戰場數據...', 'system');
-                      }, 500);
+                      c.send({ type: 'REQ_FULL_SYNC' });
+                      addLog('已連線，正在同步...', 'system');
                   }
               });
 
@@ -270,7 +269,7 @@
                   }
               } 
               else if (data.type === 'REQ_FULL_SYNC') {
-                  // 房主收到請求：發送完整數據
+                  // 房主收到請求：立即發送完整數據
                   if (amIHost) {
                       addLog('客端已加入，發送同步數據', 'system');
                       broadcastState();
