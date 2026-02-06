@@ -158,11 +158,10 @@
             return () => { if(peer) peer.destroy(); };
           }, []);
 
-          // --- 數據還原與淨化 (解決 React 元件無法傳輸的問題) ---
+          // --- 數據還原與淨化 ---
           const getDeck = (mode) => mode === 'ASSASSIN' ? ASSASSIN_CARDS : BASE_CARDS;
 
           const sanitizeStateForNetwork = (state) => {
-              // 確保 players 存在
               if (!state.players || state.players.length === 0) return state;
               const cleanPlayers = state.players.map(p => ({
                   ...p,
@@ -180,11 +179,10 @@
               }));
               return { ...state, players: hydratedPlayers };
           };
-          // ----------------------------------------------------
 
+          // --- 連線邏輯 ---
           const startMultiplayer = (role, modeToStart) => {
               if(audioEnabled) playSound('ui_click');
-              // 確保每次都是全新的 Peer
               if (peer) peer.destroy();
               const newPeer = new window.Peer();
               setPeer(newPeer);
@@ -225,15 +223,15 @@
                   if(audioEnabled) playSound('connect');
                   
                   if (isHostSide) {
-                      // 房主: 初始化遊戲
+                      // 房主: 初始化遊戲並強制廣播
                       initGame(modeToStart); 
-                      // 移除長延遲，改為極短緩衝 (50ms) 確保狀態就緒後主動發一次
-                      setTimeout(() => broadcastState(), 50);
+                      // FIX: 確保初始數據立即發送，不依賴 setTimeout 競爭
+                      setTimeout(() => broadcastState(), 200);
                   } else {
-                      // 客端: 切換畫面，並*立即*請求同步
+                      // 客端: 切換畫面，並發送同步請求
                       setView('GAME');
                       c.send({ type: 'REQ_FULL_SYNC' });
-                      addLog('已連線，正在同步...', 'system');
+                      addLog('已連線，正在取得戰場資訊...', 'system');
                   }
               });
 
@@ -252,6 +250,7 @@
               if (data.type === 'SYNC') {
                   if (!amIHost) {
                       // 接收端：還原數據
+                      if (!data.state || !data.state.players) return;
                       const s = rehydrateStateFromNetwork(data.state);
                       
                       setUnits(s.units);
@@ -269,7 +268,7 @@
                   }
               } 
               else if (data.type === 'REQ_FULL_SYNC') {
-                  // 房主收到請求：立即發送完整數據
+                  // 房主收到請求：立即發送當前 REF 的完整數據
                   if (amIHost) {
                       addLog('客端已加入，發送同步數據', 'system');
                       broadcastState();
@@ -281,7 +280,9 @@
           };
 
           const handleClientRequest = async (req) => {
+              // 確保只有在輪到 Client (Blue, ID=1) 時才處理
               if (gameStateRef.current.turn !== 1) return;
+
               if (req.type === 'REQ_MOVE') {
                   await performMove(req.unitId, req.x, req.y);
               } else if (req.type === 'REQ_ATTACK') {
@@ -297,7 +298,8 @@
               if (!conn || !isHost) return;
               const state = gameStateRef.current;
               
-              // 發送端：淨化數據 (移除 React Icon 元件)
+              if (!state.players || state.players.length === 0) return; // 防止發送空數據
+
               const cleanState = sanitizeStateForNetwork({
                   units: state.units,
                   players: state.players,
@@ -327,19 +329,30 @@
               return !players[turn].isBot; 
           };
 
+          // --- FIX: 修改 Bot 觸發邏輯，直接讀取 Ref 避免 Closure 舊狀態 ---
           useEffect(() => {
             if (view === 'GAME' && !gameOver) {
-                const currentP = players[turn];
-                if (!currentP) return;
+                // 使用 Ref 獲取最新狀態，解決 Client 結束回合後 Host 狀態未同步導致 Bot 不動的問題
+                const currentTurn = turn; 
+                const currentPlayers = gameStateRef.current.players;
+                
+                if (!currentPlayers || currentPlayers.length === 0) return;
+                
+                const currentP = currentPlayers[currentTurn];
+                
                 if (isMultiplayer) {
+                    // Host 負責跑 Bot (ID 2=Green, 3=Yellow)
                     if (isHost && (currentP.id === 2 || currentP.id === 3)) {
-                        runBotTurn();
+                        if (!isBotThinking) runBotTurn();
                     }
                 } else {
-                    if (currentP.isBot) runBotTurn();
+                    // 單人模式
+                    if (currentP.isBot) {
+                        if (!isBotThinking) runBotTurn();
+                    }
                 }
             }
-          }, [turn, gameOver, view]);
+          }, [turn, gameOver, view]); // 依賴 turn 變更觸發
 
           const initGame = (mode) => {
             setGameMode(mode);
@@ -399,6 +412,7 @@
             setView('GAME');
             if(audioEnabled) playSound('turn_start');
 
+            // FIX: 強制同步更新 Ref，確保 init 後立即廣播時數據是新的
             gameStateRef.current = {
                 units: newUnits,
                 bases: newBases,
@@ -423,8 +437,10 @@
               if (updates.bases) setBases(updates.bases);
               if (updates.items) setItems(updates.items);
               if (updates.deadUnits) setDeadUnits(updates.deadUnits);
+              if (updates.turn !== undefined) setTurn(updates.turn); // 確保 turn 更新
               if (updates.gameOver !== undefined) setGameOver(updates.gameOver);
               
+              // 立即更新 Ref 確保廣播拿到最新資料
               gameStateRef.current = { ...gameStateRef.current, ...updates };
 
               if (isMultiplayer && isHost) {
@@ -674,7 +690,7 @@
                 return { ...u, hasActed: false, buffs: newBuffs };
             });
             
-            updateGameState({ units: newUnits }); 
+            // 重要：這裡不只更新 state，也會同步觸發 updateGameState 的 Ref 更新
             setTurn(nextPlayerId);
             
             if (nextPlayerId === 0) { 
@@ -682,7 +698,7 @@
                 spawnRandomItem(); 
             }
             checkRespawns(nextPlayerId);
-            updateGameState({ turn: nextPlayerId }, 'turn_start');
+            updateGameState({ units: newUnits, turn: nextPlayerId }, 'turn_start');
           };
 
           const spawnRandomItem = () => {
@@ -705,7 +721,7 @@
 
           const runBotTurn = async () => {
             setIsBotThinking(true);
-            const botId = turn; 
+            const botId = gameStateRef.current.turn; // 確保拿到正確的 Bot ID
             await sleep(600);
             const myUnitIds = gameStateRef.current.units.filter(u => u.owner === botId).map(u => u.id);
             for (const unitId of myUnitIds) {
