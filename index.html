@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Cyber Tactics (Fixed)</title>
+    <title>Cyber Tactics (Final Fix)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
@@ -47,30 +47,29 @@
         const GEMINI_API_KEY = ""; 
         const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
-        // --- 音效系統 ---
         const audioCtx = typeof window !== 'undefined' ? new (window.AudioContext || window.webkitAudioContext)() : null;
         const playSound = (type) => {
           if (!audioCtx || audioCtx.state === 'suspended') audioCtx?.resume();
           if (!audioCtx) return;
-          const osc = audioCtx.createOscillator();
-          const gainNode = audioCtx.createGain();
-          osc.connect(gainNode);
-          gainNode.connect(audioCtx.destination);
-          const now = audioCtx.currentTime;
-
-          const sounds = {
-            move: () => { osc.frequency.setValueAtTime(300, now); osc.frequency.exponentialRampToValueAtTime(50, now + 0.15); gainNode.gain.setValueAtTime(0.2, now); gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15); osc.stop(now + 0.15); },
-            attack: () => { osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, now); osc.frequency.exponentialRampToValueAtTime(40, now + 0.2); gainNode.gain.setValueAtTime(0.2, now); osc.stop(now + 0.2); },
-            stealth: () => { osc.type = 'sine'; osc.frequency.setValueAtTime(1200, now); osc.frequency.linearRampToValueAtTime(400, now + 0.4); gainNode.gain.setValueAtTime(0, now); gainNode.gain.linearRampToValueAtTime(0.1, now + 0.1); gainNode.gain.linearRampToValueAtTime(0, now + 0.4); osc.stop(now + 0.4); },
-            respawn: () => { osc.type = 'triangle'; osc.frequency.setValueAtTime(200, now); osc.frequency.linearRampToValueAtTime(800, now + 0.5); gainNode.gain.setValueAtTime(0.2, now); gainNode.gain.linearRampToValueAtTime(0, now + 0.5); osc.stop(now + 0.5); },
-            card: () => { osc.frequency.setValueAtTime(880, now); osc.frequency.exponentialRampToValueAtTime(1760, now + 0.3); gainNode.gain.setValueAtTime(0.1, now); osc.stop(now + 0.3); },
-            damage: () => { osc.type = 'square'; osc.frequency.setValueAtTime(80, now); gainNode.gain.setValueAtTime(0.3, now); gainNode.gain.linearRampToValueAtTime(0, now + 0.2); osc.stop(now + 0.2); },
-            ui_click: () => { osc.frequency.setValueAtTime(1000, now); gainNode.gain.setValueAtTime(0.05, now); gainNode.gain.linearRampToValueAtTime(0, now + 0.05); osc.stop(now + 0.05); },
-            turn_start: () => { osc.frequency.setValueAtTime(523, now); osc.frequency.setValueAtTime(659, now + 0.1); gainNode.gain.setValueAtTime(0.1, now); gainNode.gain.linearRampToValueAtTime(0, now + 0.3); osc.stop(now + 0.3); },
-            connect: () => { osc.type = 'triangle'; osc.frequency.setValueAtTime(440, now); osc.frequency.linearRampToValueAtTime(880, now + 0.5); gainNode.gain.setValueAtTime(0.1, now); osc.stop(now + 0.5); },
-          };
-          
-          if(sounds[type]) { osc.start(now); sounds[type](); }
+          try {
+              const osc = audioCtx.createOscillator();
+              const gainNode = audioCtx.createGain();
+              osc.connect(gainNode);
+              gainNode.connect(audioCtx.destination);
+              const now = audioCtx.currentTime;
+              const sounds = {
+                move: () => { osc.frequency.setValueAtTime(300, now); osc.frequency.exponentialRampToValueAtTime(50, now + 0.15); gainNode.gain.setValueAtTime(0.2, now); gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.15); osc.stop(now + 0.15); },
+                attack: () => { osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, now); osc.frequency.exponentialRampToValueAtTime(40, now + 0.2); gainNode.gain.setValueAtTime(0.2, now); osc.stop(now + 0.2); },
+                stealth: () => { osc.type = 'sine'; osc.frequency.setValueAtTime(1200, now); osc.frequency.linearRampToValueAtTime(400, now + 0.4); gainNode.gain.setValueAtTime(0, now); gainNode.gain.linearRampToValueAtTime(0.1, now + 0.1); gainNode.gain.linearRampToValueAtTime(0, now + 0.4); osc.stop(now + 0.4); },
+                respawn: () => { osc.type = 'triangle'; osc.frequency.setValueAtTime(200, now); osc.frequency.linearRampToValueAtTime(800, now + 0.5); gainNode.gain.setValueAtTime(0.2, now); gainNode.gain.linearRampToValueAtTime(0, now + 0.5); osc.stop(now + 0.5); },
+                card: () => { osc.frequency.setValueAtTime(880, now); osc.frequency.exponentialRampToValueAtTime(1760, now + 0.3); gainNode.gain.setValueAtTime(0.1, now); osc.stop(now + 0.3); },
+                damage: () => { osc.type = 'square'; osc.frequency.setValueAtTime(80, now); gainNode.gain.setValueAtTime(0.3, now); gainNode.gain.linearRampToValueAtTime(0, now + 0.2); osc.stop(now + 0.2); },
+                ui_click: () => { osc.frequency.setValueAtTime(1000, now); gainNode.gain.setValueAtTime(0.05, now); gainNode.gain.linearRampToValueAtTime(0, now + 0.05); osc.stop(now + 0.05); },
+                turn_start: () => { osc.frequency.setValueAtTime(523, now); osc.frequency.setValueAtTime(659, now + 0.1); gainNode.gain.setValueAtTime(0.1, now); gainNode.gain.linearRampToValueAtTime(0, now + 0.3); osc.stop(now + 0.3); },
+                connect: () => { osc.type = 'triangle'; osc.frequency.setValueAtTime(440, now); osc.frequency.linearRampToValueAtTime(880, now + 0.5); gainNode.gain.setValueAtTime(0.1, now); osc.stop(now + 0.5); },
+              };
+              if(sounds[type]) { osc.start(now); sounds[type](); }
+          } catch(e) {}
         };
 
         const RESPAWN_TURNS = 3; 
@@ -149,10 +148,13 @@
           const isHostRef = useRef(false);        
           const isMultiplayerRef = useRef(false); 
           
+          // 確保任何邏輯函式都能讀取到最新的 State
+          const gameStateRef = useRef({ units: [], bases: [], items: [], players: [], gameOver: false, deadUnits: [], round: 1, gridSize: 8, turn: 0, gameMode: 'STANDARD' });
+
           const currentPlayer = players[turn] || PLAYERS[0];
           const selectedUnit = units.find(u => u.id === selectedUnitId);
-          const gameStateRef = useRef({ units, bases, items, players, gameOver, deadUnits, round, gridSize, turn, gameMode });
 
+          // 這裡非常重要：每次 Render 都更新 Ref，確保 Ref 內的資料是最新的
           useEffect(() => {
             gameStateRef.current = { units, bases, items, players, gameOver, deadUnits, round, gridSize, turn, gameMode };
           }, [units, bases, items, players, gameOver, deadUnits, round, gridSize, turn, gameMode]);
@@ -171,14 +173,7 @@
                   ...p,
                   cards: p.cards.map(c => c.id) 
               }));
-              return { 
-                  ...state, 
-                  players: cleanPlayers,
-                  units: state.units,
-                  bases: state.bases,
-                  items: state.items,
-                  deadUnits: state.deadUnits
-              };
+              return { ...state, players: cleanPlayers };
           };
 
           const rehydrateStateFromNetwork = (state) => {
@@ -300,8 +295,7 @@
           };
 
           const handleClientRequest = async (req) => {
-              // 允許 Client 回合的所有請求，不限制 turn === 1，因為 Client ID 可能是 1
-              // 安全檢查：確認當前真的是 Client 的回合
+              // 修正：必須使用 Ref 讀取當前 Turn，否則會讀到閉包內的舊 Turn (0)
               if (gameStateRef.current.turn !== 1) return;
               
               if (req.type === 'REQ_MOVE') {
@@ -340,9 +334,7 @@
                     state: cleanState,
                     sound: soundEffect
                 });
-              } catch (e) {
-                  console.error("Broadcast failed:", e);
-              }
+              } catch (e) { }
           };
 
           const canControl = () => {
@@ -352,24 +344,6 @@
               }
               return !players[turn].isBot; 
           };
-
-          useEffect(() => {
-            if (view === 'GAME' && !gameOver) {
-                const currentP = players[turn];
-                if (!currentP) return;
-
-                const isMulti = isMultiplayerRef.current;
-                const amHost = isHostRef.current;
-
-                if (isMulti) {
-                    if (amHost && (currentP.id === 2 || currentP.id === 3)) {
-                        runBotTurn();
-                    }
-                } else {
-                    if (currentP.isBot) runBotTurn();
-                }
-            }
-          }, [turn, gameOver, view, isMultiplayer, isHost]); 
 
           const initGame = (mode) => {
             setGameMode(mode);
@@ -504,6 +478,7 @@
                  return;
              }
 
+             // 關鍵：使用 Ref 獲取最新狀態
              const unit = gameStateRef.current.units.find(u => u.id === unitId);
              if (!unit) return;
              if(audioEnabled) playSound('move');
@@ -698,7 +673,9 @@
             setValidTargets([]);
             setAiAdvice(null);
             
-            let nextPlayerId = (turn + 1) % 4;
+            // 修正：必須從 Ref 讀取當前的 Turn，不能使用閉包內的 turn (State)
+            const currentTurn = gameStateRef.current.turn;
+            let nextPlayerId = (currentTurn + 1) % 4;
             while (!gameStateRef.current.players[nextPlayerId].isAlive) nextPlayerId = (nextPlayerId + 1) % 4;
             
             const newUnits = gameStateRef.current.units.map(u => {
@@ -707,19 +684,39 @@
                 return { ...u, hasActed: false, buffs: newBuffs };
             });
             
-            gameStateRef.current = { ...gameStateRef.current, units: newUnits };
             setUnits(newUnits);
-            
             setTurn(nextPlayerId);
             
+            let newRound = gameStateRef.current.round;
             if (nextPlayerId === 0) { 
-                setRound(round + 1); 
+                newRound = newRound + 1;
+                setRound(newRound);
                 spawnRandomItem(); 
             }
+            
+            // 立即更新 Ref，保證接下來的邏輯讀到正確數值
+            gameStateRef.current = { 
+                ...gameStateRef.current, 
+                units: newUnits, 
+                turn: nextPlayerId,
+                round: newRound
+            };
+            
             checkRespawns(nextPlayerId);
 
-            // 關鍵修改：強制廣播 Turn 切換事件
+            // 廣播
             updateGameState({ turn: nextPlayerId, units: newUnits }, 'turn_start');
+
+            // 修正：直接在這裡檢查是否需要啟動 BOT，而不是依賴 useEffect
+            // 這樣可以避免 useEffect 依賴 State 更新不及時的問題
+            const isHost = isHostRef.current;
+            const isMulti = isMultiplayerRef.current;
+            const nextPlayerIsBot = gameStateRef.current.players[nextPlayerId].id > 1; // ID 2 & 3 are Bots
+
+            if ((!isMulti && gameStateRef.current.players[nextPlayerId].isBot) || 
+                (isMulti && isHost && nextPlayerIsBot)) {
+                setTimeout(() => runBotTurn(), 500);
+            }
           };
 
           const spawnRandomItem = () => {
@@ -743,7 +740,10 @@
           const runBotTurn = async () => {
             if (isBotThinking) return; 
             setIsBotThinking(true);
-            const botId = turn; 
+            
+            // 確保讀取的是 Ref 中的 Turn
+            const botId = gameStateRef.current.turn; 
+            
             await sleep(600);
             const myUnitIds = gameStateRef.current.units.filter(u => u.owner === botId).map(u => u.id);
             for (const unitId of myUnitIds) {
