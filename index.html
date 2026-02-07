@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Cyber Tactics</title>
+    <title>Cyber Tactics (Sync Fixed)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
@@ -144,9 +144,12 @@
           const [myPlayerId, setMyPlayerId] = useState(0); 
           const [connectionStatus, setConnectionStatus] = useState('DISCONNECTED'); 
 
-          // 核心修復：使用 Ref 來追蹤連線物件，避免 Closure 閉包導致的 stale state
+          // 核心修復：使用 Ref 來追蹤所有連線相關狀態
+          // 這能解決 PeerJS 事件監聽器中的「閉包陷阱 (Closure Trap)」，確保即使在舊的事件回呼中也能讀到最新的連線狀態
           const connectionRef = useRef(null);
           const peerRef = useRef(null);
+          const isHostRef = useRef(false);        // 新增：追蹤是否為房主
+          const isMultiplayerRef = useRef(false); // 新增：追蹤是否為多人模式
           
           const currentPlayer = players[turn] || PLAYERS[0];
           const selectedUnit = units.find(u => u.id === selectedUnitId);
@@ -173,7 +176,6 @@
               return { 
                   ...state, 
                   players: cleanPlayers,
-                  // 移除可能導致循環引用的多餘欄位，只傳送數據
                   units: state.units,
                   bases: state.bases,
                   items: state.items,
@@ -183,7 +185,6 @@
 
           const rehydrateStateFromNetwork = (state) => {
               if (!state.players) return state;
-              // 使用傳過來的 gameMode 來決定使用哪副牌
               const deck = getDeck(state.gameMode || 'STANDARD');
               const hydratedPlayers = state.players.map(p => ({
                   ...p,
@@ -201,16 +202,22 @@
               peerRef.current = newPeer;
               setConnectionStatus('CONNECTING');
               
+              // 同步更新 Ref 狀態
+              const isHostRole = (role === 'HOST');
+              setIsHost(isHostRole);
+              isHostRef.current = isHostRole; 
+              
+              setIsMultiplayer(true);
+              isMultiplayerRef.current = true;
+
               newPeer.on('open', (id) => {
                   setMyPeerId(id);
                   if (role === 'HOST') {
-                      setIsHost(true);
                       setMyPlayerId(0);
                       newPeer.on('connection', (c) => {
                           setupConnection(c, true, modeToStart);
                       });
                   } else {
-                      setIsHost(false);
                       setMyPlayerId(1);
                   }
               });
@@ -224,32 +231,36 @@
           const joinGame = () => {
               if (!peerRef.current || !connectToId) return;
               if(audioEnabled) playSound('ui_click');
+              
+              // 加入時也確認更新狀態
+              setIsMultiplayer(true);
+              isMultiplayerRef.current = true;
+              setIsHost(false);
+              isHostRef.current = false;
+
               const c = peerRef.current.connect(connectToId);
               setupConnection(c, false, null);
           };
 
           const setupConnection = (c, isHostSide, modeToStart) => {
-              // 關鍵修復：更新 Ref
               connectionRef.current = c;
               
               c.on('open', () => {
                   setConnectionStatus('CONNECTED');
-                  setIsMultiplayer(true);
                   if(audioEnabled) playSound('connect');
                   
                   if (isHostSide) {
                       initGame(modeToStart); 
-                      // 確保狀態已寫入 Ref 後再發送
                       setTimeout(() => broadcastState(), 100);
                   } else {
                       setView('GAME');
-                      // 使用 Ref 確保發送
                       connectionRef.current.send({ type: 'REQ_FULL_SYNC' });
                       addLog('已連線，正在同步...', 'system');
                   }
               });
 
               c.on('data', (data) => {
+                  // 這裡傳入的 isHostSide 是 setupConnection 執行時的閉包變數，這是安全的
                   handleNetworkData(data, isHostSide);
               });
 
@@ -261,7 +272,6 @@
           };
 
           const handleNetworkData = (data, amIHost) => {
-              // 這裡讀取的 gameStateRef.current 是最新的，這部分沒問題
               if (data.type === 'SYNC') {
                   if (!amIHost) {
                       const s = rehydrateStateFromNetwork(data.state);
@@ -278,7 +288,6 @@
                       setGridSize(s.gridSize);
                       setGameMode(s.gameMode);
                       
-                      // 強制更新 Ref 以便立即使用
                       gameStateRef.current = { ...gameStateRef.current, ...s };
                       
                       if(data.sound && audioEnabled) playSound(data.sound);
@@ -296,12 +305,12 @@
           };
 
           const handleClientRequest = async (req) => {
-              // 確保只處理當前回合的請求
               if (gameStateRef.current.turn !== 1) {
-                  console.log("非 Client 回合，忽略請求");
                   return;
               }
               
+              // 這些函式會呼叫 updateGameState -> broadcastState
+              // 由於使用了 isHostRef，即使在這裡調用，也能正確廣播
               if (req.type === 'REQ_MOVE') {
                   await performMove(req.unitId, req.x, req.y);
               } else if (req.type === 'REQ_ATTACK') {
@@ -314,8 +323,8 @@
           };
 
           const broadcastState = (soundEffect = null, logMsg = null) => {
-              // 關鍵修復：使用 connectionRef.current 而不是閉包中的 conn
-              if (!connectionRef.current || !isHost) return;
+              // 關鍵修復：使用 Ref 檢查，而不是 state
+              if (!connectionRef.current || !isHostRef.current) return;
               
               const state = gameStateRef.current;
               
@@ -424,7 +433,6 @@
             setView('GAME');
             if(audioEnabled) playSound('turn_start');
 
-            // 強制立即更新 Ref
             gameStateRef.current = {
                 units: newUnits,
                 bases: newBases,
@@ -451,10 +459,12 @@
               if (updates.deadUnits) setDeadUnits(updates.deadUnits);
               if (updates.gameOver !== undefined) setGameOver(updates.gameOver);
               
-              // 立即更新 Ref，保證廣播時數據最新
               gameStateRef.current = { ...gameStateRef.current, ...updates };
 
-              if (isMultiplayer && isHost) {
+              // 關鍵修復：使用 Ref 判斷是否需要廣播
+              // 舊代碼檢查 isMultiplayer (state)，在 Peer 事件的回調中會是 false (閉包變數過期)
+              // 使用 Ref 可以確保即使在過期的閉包中，也能正確觸發廣播
+              if (isMultiplayerRef.current && isHostRef.current) {
                   broadcastState(sound, logMsg);
               }
           };
@@ -494,8 +504,8 @@
           };
 
           const performMove = async (unitId, x, y) => {
-             if (isMultiplayer && !isHost) {
-                 // 關鍵修復：Client 使用 connectionRef 發送
+             // 客端發送請求邏輯
+             if (isMultiplayerRef.current && !isHostRef.current) {
                  if (connectionRef.current) {
                     connectionRef.current.send({ type: 'REQ_MOVE', unitId, x, y });
                  }
@@ -526,7 +536,7 @@
           };
 
           const performAttack = async (attackerId, targetId, targetType) => {
-              if (isMultiplayer && !isHost) {
+              if (isMultiplayerRef.current && !isHostRef.current) {
                  if (connectionRef.current) {
                     connectionRef.current.send({ type: 'REQ_ATTACK', attackerId, targetId, targetType });
                  }
@@ -551,7 +561,6 @@
                   if (newHp <= 0) {
                       addLog('擊破目標單位！');
                       handleUnitDeath(targetId, targetUnit.type, targetUnit.owner);
-                      // handleUnitDeath 會更新 state，這裡需要獲取最新的
                       newUnits = gameStateRef.current.units; 
                   }
                   newUnits = newUnits.map(u => u.id === attackerId ? { ...u, hasActed: true, buffs: { ...u.buffs, doubleDamage: false, stealth: false } } : u);
@@ -629,7 +638,7 @@
               const myUnits = units.filter(u => u.owner === turn);
               
               if (card.effect === 'BUFF_DMG') {
-                  if (isMultiplayer && !isHost) {
+                  if (isMultiplayerRef.current && !isHostRef.current) {
                        connectionRef.current?.send({ type: 'REQ_CARD', cardIndex: index, target: { type: 'SELF' } });
                        return;
                   }
@@ -646,7 +655,7 @@
                       if(audioEnabled) playSound('error'); 
                       return; 
                   }
-                  if (isMultiplayer && !isHost) {
+                  if (isMultiplayerRef.current && !isHostRef.current) {
                        connectionRef.current?.send({ type: 'REQ_CARD', cardIndex: index, target: { type: 'BASE' } });
                        return;
                   }
@@ -674,7 +683,7 @@
 
           const handleCardTargetClick = (target) => {
               if (!selectedCard) return;
-              if (isMultiplayer && !isHost) {
+              if (isMultiplayerRef.current && !isHostRef.current) {
                   connectionRef.current?.send({ type: 'REQ_CARD', cardIndex: selectedCard.index, target });
                   setSelectedCard(null);
                   setValidTargets([]);
@@ -686,7 +695,7 @@
           };
 
           const nextTurn = () => {
-            if (isMultiplayer && !isHost) {
+            if (isMultiplayerRef.current && !isHostRef.current) {
                 connectionRef.current?.send({ type: 'REQ_END_TURN' });
                 return;
             }
