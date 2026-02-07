@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Cyber Tactics (Sync Fixed)</title>
+    <title>Cyber Tactics (Fixed)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
@@ -144,12 +144,10 @@
           const [myPlayerId, setMyPlayerId] = useState(0); 
           const [connectionStatus, setConnectionStatus] = useState('DISCONNECTED'); 
 
-          // 核心修復：使用 Ref 來追蹤所有連線相關狀態
-          // 這能解決 PeerJS 事件監聽器中的「閉包陷阱 (Closure Trap)」，確保即使在舊的事件回呼中也能讀到最新的連線狀態
           const connectionRef = useRef(null);
           const peerRef = useRef(null);
-          const isHostRef = useRef(false);        // 新增：追蹤是否為房主
-          const isMultiplayerRef = useRef(false); // 新增：追蹤是否為多人模式
+          const isHostRef = useRef(false);        
+          const isMultiplayerRef = useRef(false); 
           
           const currentPlayer = players[turn] || PLAYERS[0];
           const selectedUnit = units.find(u => u.id === selectedUnitId);
@@ -202,7 +200,6 @@
               peerRef.current = newPeer;
               setConnectionStatus('CONNECTING');
               
-              // 同步更新 Ref 狀態
               const isHostRole = (role === 'HOST');
               setIsHost(isHostRole);
               isHostRef.current = isHostRole; 
@@ -232,7 +229,6 @@
               if (!peerRef.current || !connectToId) return;
               if(audioEnabled) playSound('ui_click');
               
-              // 加入時也確認更新狀態
               setIsMultiplayer(true);
               isMultiplayerRef.current = true;
               setIsHost(false);
@@ -260,7 +256,6 @@
               });
 
               c.on('data', (data) => {
-                  // 這裡傳入的 isHostSide 是 setupConnection 執行時的閉包變數，這是安全的
                   handleNetworkData(data, isHostSide);
               });
 
@@ -305,12 +300,10 @@
           };
 
           const handleClientRequest = async (req) => {
-              if (gameStateRef.current.turn !== 1) {
-                  return;
-              }
+              // 允許 Client 回合的所有請求，不限制 turn === 1，因為 Client ID 可能是 1
+              // 安全檢查：確認當前真的是 Client 的回合
+              if (gameStateRef.current.turn !== 1) return;
               
-              // 這些函式會呼叫 updateGameState -> broadcastState
-              // 由於使用了 isHostRef，即使在這裡調用，也能正確廣播
               if (req.type === 'REQ_MOVE') {
                   await performMove(req.unitId, req.x, req.y);
               } else if (req.type === 'REQ_ATTACK') {
@@ -323,7 +316,6 @@
           };
 
           const broadcastState = (soundEffect = null, logMsg = null) => {
-              // 關鍵修復：使用 Ref 檢查，而不是 state
               if (!connectionRef.current || !isHostRef.current) return;
               
               const state = gameStateRef.current;
@@ -365,15 +357,19 @@
             if (view === 'GAME' && !gameOver) {
                 const currentP = players[turn];
                 if (!currentP) return;
-                if (isMultiplayer) {
-                    if (isHost && (currentP.id === 2 || currentP.id === 3)) {
+
+                const isMulti = isMultiplayerRef.current;
+                const amHost = isHostRef.current;
+
+                if (isMulti) {
+                    if (amHost && (currentP.id === 2 || currentP.id === 3)) {
                         runBotTurn();
                     }
                 } else {
                     if (currentP.isBot) runBotTurn();
                 }
             }
-          }, [turn, gameOver, view]);
+          }, [turn, gameOver, view, isMultiplayer, isHost]); 
 
           const initGame = (mode) => {
             setGameMode(mode);
@@ -461,9 +457,6 @@
               
               gameStateRef.current = { ...gameStateRef.current, ...updates };
 
-              // 關鍵修復：使用 Ref 判斷是否需要廣播
-              // 舊代碼檢查 isMultiplayer (state)，在 Peer 事件的回調中會是 false (閉包變數過期)
-              // 使用 Ref 可以確保即使在過期的閉包中，也能正確觸發廣播
               if (isMultiplayerRef.current && isHostRef.current) {
                   broadcastState(sound, logMsg);
               }
@@ -504,7 +497,6 @@
           };
 
           const performMove = async (unitId, x, y) => {
-             // 客端發送請求邏輯
              if (isMultiplayerRef.current && !isHostRef.current) {
                  if (connectionRef.current) {
                     connectionRef.current.send({ type: 'REQ_MOVE', unitId, x, y });
@@ -705,7 +697,6 @@
             setSelectedCard(null);
             setValidTargets([]);
             setAiAdvice(null);
-            if(audioEnabled) playSound('turn_start');
             
             let nextPlayerId = (turn + 1) % 4;
             while (!gameStateRef.current.players[nextPlayerId].isAlive) nextPlayerId = (nextPlayerId + 1) % 4;
@@ -716,7 +707,9 @@
                 return { ...u, hasActed: false, buffs: newBuffs };
             });
             
-            updateGameState({ units: newUnits }); 
+            gameStateRef.current = { ...gameStateRef.current, units: newUnits };
+            setUnits(newUnits);
+            
             setTurn(nextPlayerId);
             
             if (nextPlayerId === 0) { 
@@ -724,7 +717,9 @@
                 spawnRandomItem(); 
             }
             checkRespawns(nextPlayerId);
-            updateGameState({ turn: nextPlayerId }, 'turn_start');
+
+            // 關鍵修改：強制廣播 Turn 切換事件
+            updateGameState({ turn: nextPlayerId, units: newUnits }, 'turn_start');
           };
 
           const spawnRandomItem = () => {
@@ -746,6 +741,7 @@
           };
 
           const runBotTurn = async () => {
+            if (isBotThinking) return; 
             setIsBotThinking(true);
             const botId = turn; 
             await sleep(600);
