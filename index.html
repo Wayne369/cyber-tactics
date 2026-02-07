@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Cyber Tactics Online (V3 Fix)</title>
+    <title>Cyber Tactics Online</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
@@ -30,7 +30,7 @@
         ::-webkit-scrollbar-track { background: #0f172a; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
         .glass-panel {
-            background: rgba(15, 23, 42, 0.95);
+            background: rgba(15, 23, 42, 0.85);
             backdrop-filter: blur(12px);
             border: 1px solid rgba(51, 65, 85, 0.5);
         }
@@ -42,7 +42,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Sword, Eye, Castle, Zap, Heart, Shield, Footprints, X, Ghost, VenetianMask, Play, Wifi, Link, Copy, Volume2, VolumeX, ChevronLeft, ScrollText, User, Target, Flame, Plus, RotateCcw, RefreshCw, AlertTriangle } from 'lucide-react';
+        import { Sword, Eye, Castle, Zap, Heart, Shield, Footprints, X, Ghost, VenetianMask, Play, Wifi, Link, Copy, Volume2, VolumeX, ChevronLeft, ScrollText, User, Target, Flame, Plus, RotateCcw, RefreshCw } from 'lucide-react';
 
         const GEMINI_API_KEY = ""; 
         const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
@@ -148,40 +148,22 @@
 
           const currentPlayer = players[turn] || PLAYERS[0];
           const selectedUnit = units.find(u => u.id === selectedUnitId);
-          // Ref 作為 "Single Source of Truth"，確保邏輯運算總是拿到最新狀態
-          const gameStateRef = useRef({ units: [], bases: [], items: [], players: [], gameOver: false, deadUnits: [], round: 1, gridSize: 8, turn: 0, gameMode: 'STANDARD' });
+          const gameStateRef = useRef({ units, bases, items, players, gameOver, deadUnits, round, gridSize, turn, gameMode });
 
-          // 清理 Peer
+          useEffect(() => {
+            gameStateRef.current = { units, bases, items, players, gameOver, deadUnits, round, gridSize, turn, gameMode };
+          }, [units, bases, items, players, gameOver, deadUnits, round, gridSize, turn, gameMode]);
+
           useEffect(() => {
             return () => { if(peer) peer.destroy(); };
           }, []);
 
-          // --- 核心：狀態原子提交 ---
-          // 這個函數確保 Ref (邏輯) 和 State (畫面) 永遠同步，並自動處理廣播
-          const commitState = (updates, sound = null, logMsg = null) => {
-              // 1. 先更新 Ref，確保後續的同步函數讀取到的是最新的
-              gameStateRef.current = { ...gameStateRef.current, ...updates };
-
-              // 2. 更新 React State (非同步，只為了渲染畫面)
-              if (updates.units) setUnits(updates.units);
-              if (updates.players) setPlayers(updates.players);
-              if (updates.bases) setBases(updates.bases);
-              if (updates.items) setItems(updates.items);
-              if (updates.deadUnits) setDeadUnits(updates.deadUnits);
-              if (updates.turn !== undefined) setTurn(updates.turn);
-              if (updates.gameOver !== undefined) setGameOver(updates.gameOver);
-              if (updates.round !== undefined) setRound(updates.round);
-
-              // 3. 如果是 Host，廣播最新的 Ref 狀態給 Client
-              if (isMultiplayer && isHost) {
-                  broadcastState(sound, logMsg);
-              }
-          };
-
+          // --- 數據還原與淨化 (解決 React 元件無法傳輸的問題) ---
           const getDeck = (mode) => mode === 'ASSASSIN' ? ASSASSIN_CARDS : BASE_CARDS;
 
           const sanitizeStateForNetwork = (state) => {
-              if (!state.players || state.players.length === 0) return null;
+              // 確保 players 存在
+              if (!state.players || state.players.length === 0) return state;
               const cleanPlayers = state.players.map(p => ({
                   ...p,
                   cards: p.cards.map(c => c.id) 
@@ -190,7 +172,7 @@
           };
 
           const rehydrateStateFromNetwork = (state) => {
-              if (!state || !state.players) return null;
+              if (!state.players) return state;
               const deck = getDeck(state.gameMode);
               const hydratedPlayers = state.players.map(p => ({
                   ...p,
@@ -198,9 +180,11 @@
               }));
               return { ...state, players: hydratedPlayers };
           };
+          // ----------------------------------------------------
 
           const startMultiplayer = (role, modeToStart) => {
               if(audioEnabled) playSound('ui_click');
+              // 確保每次都是全新的 Peer
               if (peer) peer.destroy();
               const newPeer = new window.Peer();
               setPeer(newPeer);
@@ -241,14 +225,15 @@
                   if(audioEnabled) playSound('connect');
                   
                   if (isHostSide) {
+                      // 房主: 初始化遊戲
                       initGame(modeToStart); 
-                      // 延遲一點點確保 initGame 執行完畢
-                      setTimeout(() => broadcastState(), 100);
+                      // 移除長延遲，改為極短緩衝 (50ms) 確保狀態就緒後主動發一次
+                      setTimeout(() => broadcastState(), 50);
                   } else {
+                      // 客端: 切換畫面，並*立即*請求同步
                       setView('GAME');
-                      // Client 主動請求同步，並設定定時器確保不會永遠等待
                       c.send({ type: 'REQ_FULL_SYNC' });
-                      addLog('已連線，請求戰場數據...', 'system');
+                      addLog('已連線，正在同步...', 'system');
                   }
               });
 
@@ -266,37 +251,37 @@
           const handleNetworkData = (data, amIHost) => {
               if (data.type === 'SYNC') {
                   if (!amIHost) {
+                      // 接收端：還原數據
                       const s = rehydrateStateFromNetwork(data.state);
-                      if (s) {
-                          // Client 接收同步數據，必須使用 commitState 確保本地 Ref 更新
-                          commitState(s);
-                          setGridSize(s.gridSize);
-                          setGameMode(s.gameMode);
-                          if (logs.length === 0) addLog('戰場數據同步完成', 'system');
-                          setLogs(prev => s.lastLog ? [{text: s.lastLog.text, type: s.lastLog.type}, ...prev].slice(0,8) : prev);
-                          if(data.sound && audioEnabled) playSound(data.sound);
-                      }
+                      
+                      setUnits(s.units);
+                      setPlayers(s.players);
+                      setBases(s.bases);
+                      setItems(s.items);
+                      setDeadUnits(s.deadUnits);
+                      setTurn(s.turn);
+                      setRound(s.round);
+                      setGameOver(s.gameOver);
+                      setLogs(prev => s.lastLog ? [{text: s.lastLog.text, type: s.lastLog.type}, ...prev].slice(0,8) : prev);
+                      setGridSize(s.gridSize);
+                      setGameMode(s.gameMode);
+                      if(data.sound && audioEnabled) playSound(data.sound);
                   }
               } 
               else if (data.type === 'REQ_FULL_SYNC') {
+                  // 房主收到請求：立即發送完整數據
                   if (amIHost) {
-                      addLog('客端請求同步...', 'system');
+                      addLog('客端已加入，發送同步數據', 'system');
                       broadcastState();
                   }
               }
               else if (amIHost) {
-                  // Host 處理 Client 的動作請求
                   handleClientRequest(data);
               }
           };
 
           const handleClientRequest = async (req) => {
-              // 嚴格檢查：只有當前回合是 Client (ID 1) 時才接受指令
-              if (gameStateRef.current.turn !== 1) {
-                  console.warn("Received request but not client turn");
-                  return;
-              }
-
+              if (gameStateRef.current.turn !== 1) return;
               if (req.type === 'REQ_MOVE') {
                   await performMove(req.unitId, req.x, req.y);
               } else if (req.type === 'REQ_ATTACK') {
@@ -310,8 +295,9 @@
 
           const broadcastState = (soundEffect = null, logMsg = null) => {
               if (!conn || !isHost) return;
-              // 永遠從 Ref 讀取最新狀態
               const state = gameStateRef.current;
+              
+              // 發送端：淨化數據 (移除 React Icon 元件)
               const cleanState = sanitizeStateForNetwork({
                   units: state.units,
                   players: state.players,
@@ -326,13 +312,11 @@
                   lastLog: logMsg ? {text: logMsg, type: 'system'} : null
               });
 
-              if (cleanState) {
-                  conn.send({
-                      type: 'SYNC',
-                      state: cleanState,
-                      sound: soundEffect
-                  });
-              }
+              conn.send({
+                  type: 'SYNC',
+                  state: cleanState,
+                  sound: soundEffect
+              });
           };
 
           const canControl = () => {
@@ -340,10 +324,22 @@
               if (isMultiplayer) {
                   return turn === myPlayerId; 
               }
-              return !players[turn]?.isBot; 
+              return !players[turn].isBot; 
           };
 
-          // 移除舊的 useEffect BOT 觸發器，改由 nextTurn 主動觸發，避免依賴問題
+          useEffect(() => {
+            if (view === 'GAME' && !gameOver) {
+                const currentP = players[turn];
+                if (!currentP) return;
+                if (isMultiplayer) {
+                    if (isHost && (currentP.id === 2 || currentP.id === 3)) {
+                        runBotTurn();
+                    }
+                } else {
+                    if (currentP.isBot) runBotTurn();
+                }
+            }
+          }, [turn, gameOver, view]);
 
           const initGame = (mode) => {
             setGameMode(mode);
@@ -388,10 +384,22 @@
 
             const initialItems = [{ x: Math.floor(size/2), y: Math.floor(size/2), type: 'CARD' }, { x: Math.floor(size/2)-1, y: Math.floor(size/2)-1, type: 'CARD' }];
 
+            setBases(newBases);
+            setUnits(newUnits);
+            setItems(initialItems);
             setLogs([{ text: mode === 'ASSASSIN' ? '刺客模式啟動！' : '標準戰役開始！', type: 'system' }]);
-            
-            // 使用 commitState 初始化，這樣 Ref 會立即有值
-            commitState({
+            setPlayers(initialPlayers);
+            setDeadUnits([]);
+            setTurn(0);
+            setRound(1);
+            setGameOver(false);
+            setAiAdvice(null);
+            setValidMoves([]);
+            setSelectedUnitId(null);
+            setView('GAME');
+            if(audioEnabled) playSound('turn_start');
+
+            gameStateRef.current = {
                 units: newUnits,
                 bases: newBases,
                 items: initialItems,
@@ -402,17 +410,26 @@
                 gridSize: size,
                 turn: 0,
                 gameMode: mode
-            });
-
-            setAiAdvice(null);
-            setValidMoves([]);
-            setSelectedUnitId(null);
-            setView('GAME');
-            if(audioEnabled) playSound('turn_start');
+            };
           };
 
           const addLog = (msg, type = 'system') => { 
               setLogs(prev => [{ text: msg, type }, ...prev].slice(0, 8)); 
+          };
+
+          const updateGameState = (updates, sound = null, logMsg = null) => {
+              if (updates.units) setUnits(updates.units);
+              if (updates.players) setPlayers(updates.players);
+              if (updates.bases) setBases(updates.bases);
+              if (updates.items) setItems(updates.items);
+              if (updates.deadUnits) setDeadUnits(updates.deadUnits);
+              if (updates.gameOver !== undefined) setGameOver(updates.gameOver);
+              
+              gameStateRef.current = { ...gameStateRef.current, ...updates };
+
+              if (isMultiplayer && isHost) {
+                  broadcastState(sound, logMsg);
+              }
           };
 
           const checkRespawns = (currentPlayerId) => {
@@ -439,15 +456,14 @@
                   addLog(`${PLAYERS[currentPlayerId].name} 的 ${UNIT_TYPES[d.type].name} 復活。`, 'system');
                   if(audioEnabled) playSound('respawn');
               });
-              // 這裡只更新局部，由呼叫者決定何時 commit
-              gameStateRef.current = { ...gameStateRef.current, units: currentUnits, deadUnits: stillDead };
+              updateGameState({ units: currentUnits, deadUnits: stillDead });
           };
 
           const handleUnitDeath = (unitId, unitType, ownerId) => {
              const respawnRound = gameStateRef.current.round + RESPAWN_TURNS;
              const newDead = [...gameStateRef.current.deadUnits, { type: unitType, owner: ownerId, respawnRound }];
              const newUnits = gameStateRef.current.units.filter(u => u.id !== unitId);
-             commitState({ units: newUnits, deadUnits: newDead });
+             updateGameState({ units: newUnits, deadUnits: newDead });
           };
 
           const performMove = async (unitId, x, y) => {
@@ -460,10 +476,9 @@
              if (!unit) return;
              if(audioEnabled) playSound('move');
              let newUnits = gameStateRef.current.units.map(u => u.id === unitId ? { ...u, x, y, hasActed: true } : u);
-             
+             let stateUpdates = { units: newUnits };
              const itemIndex = gameStateRef.current.items.findIndex(i => i.x === x && i.y === y);
-             let updates = { units: newUnits };
-
+             
              if (itemIndex !== -1 && unit.type === 'SCOUT') {
                  const deck = gameMode === 'ASSASSIN' ? ASSASSIN_CARDS : BASE_CARDS;
                  const randomCard = deck[Math.floor(Math.random() * deck.length)];
@@ -473,10 +488,10 @@
                  newItems.splice(itemIndex, 1);
                  addLog(`${PLAYERS[unit.owner].name} 獲取了 ${randomCard.name}`);
                  if(audioEnabled) playSound('card');
-                 updates.players = newPlayers;
-                 updates.items = newItems;
+                 stateUpdates.players = newPlayers;
+                 stateUpdates.items = newItems;
              }
-             commitState(updates, 'move'); 
+             updateGameState(stateUpdates, 'move'); 
           };
 
           const performAttack = async (attackerId, targetId, targetType) => {
@@ -491,6 +506,7 @@
               if (attackerUnit.buffs?.doubleDamage) dmg *= 2;
               
               if(audioEnabled) playSound('attack');
+              let stateUpdates = {};
               
               if (targetType === 'UNIT') {
                   const targetUnit = gameStateRef.current.units.find(u => u.id === targetId);
@@ -499,31 +515,25 @@
                   if(audioEnabled) playSound('damage');
                   let newUnits = gameStateRef.current.units.map(u => u.id === targetId ? { ...u, hp: newHp } : u);
                   addLog(`${PLAYERS[attackerUnit.owner].name} 攻擊 ${PLAYERS[targetUnit.owner].name} 造成 ${dmg} 傷害`);
-                  
-                  // 先更新血量狀態
-                  newUnits = newUnits.map(u => u.id === attackerId ? { ...u, hasActed: true, buffs: { ...u.buffs, doubleDamage: false, stealth: false } } : u);
-                  commitState({ units: newUnits }, 'damage');
-
                   if (newHp <= 0) {
                       addLog('擊破目標單位！');
                       handleUnitDeath(targetId, targetUnit.type, targetUnit.owner);
+                      newUnits = gameStateRef.current.units; 
                   }
+                  newUnits = newUnits.map(u => u.id === attackerId ? { ...u, hasActed: true, buffs: { ...u.buffs, doubleDamage: false, stealth: false } } : u);
+                  stateUpdates.units = newUnits;
               } else if (targetType === 'BASE') {
                   const targetBase = gameStateRef.current.bases.find(b => b.id === targetId);
                   const newHp = targetBase.hp - dmg;
                   const newBases = gameStateRef.current.bases.map(b => b.id === targetId ? { ...b, hp: newHp } : b);
                   let newUnits = gameStateRef.current.units.map(u => u.id === attackerId ? { ...u, hasActed: true, buffs: { ...u.buffs, doubleDamage: false, stealth: false } } : u);
-                  
+                  stateUpdates.units = newUnits;
+                  stateUpdates.bases = newBases;
                   addLog(`攻擊大本營！剩餘 HP ${Math.max(0, newHp)}`);
                   if(audioEnabled) playSound('damage');
-                  
-                  if (newHp <= 0) { 
-                      commitState({ units: newUnits, bases: newBases }, 'damage'); 
-                      handlePlayerDefeat(targetBase.owner); 
-                  } else {
-                      commitState({ units: newUnits, bases: newBases }, 'damage');
-                  }
+                  if (newHp <= 0) { updateGameState(stateUpdates, 'damage'); handlePlayerDefeat(targetBase.owner); return; }
               }
+              updateGameState(stateUpdates, 'damage');
           };
 
           const handlePlayerDefeat = (lostPlayerId) => {
@@ -533,7 +543,7 @@
             let updates = { players: newPlayers, units: remainingUnits };
             const alivePlayers = newPlayers.filter(p => p.isAlive);
             if (alivePlayers.length === 1) { updates.gameOver = true; addLog(`🏆 ${alivePlayers[0].name} 勝利！`, 'win'); if(audioEnabled) playSound('win'); }
-            commitState(updates, 'win');
+            updateGameState(updates, 'win');
           };
 
           const applyCardEffect = (cardIndex, target, playerId) => {
@@ -574,7 +584,7 @@
 
               if (log) addLog(log);
               if (audioEnabled) playSound(sound);
-              commitState(updates, sound);
+              updateGameState(updates, sound);
           };
 
           const startCardUse = (card, index) => {
@@ -592,7 +602,7 @@
                   addLog('戰士裝填狂暴彈藥！');
                   const newPlayers = [...players];
                   newPlayers[turn].cards.splice(index, 1);
-                  commitState({ units: newUnits, players: newPlayers }, 'card');
+                  updateGameState({ units: newUnits, players: newPlayers }, 'card');
                   return;
               }
               if (card.effect === 'BASE_HEAL') {
@@ -606,10 +616,10 @@
                        conn.send({ type: 'REQ_CARD', cardIndex: index, target: { type: 'BASE' } });
                        return;
                   }
-                  const newBases = bases.map(b => b.owner === turn ? {...b, hp: Math.min(b.hp + 5, MAX_BASE_HP)} : b);
+                  updateGameState({ bases: bases.map(b => b.owner === turn ? {...b, hp: Math.min(b.hp + 5, MAX_BASE_HP)} : b) });
                   const newPlayers = [...players];
                   newPlayers[turn].cards.splice(index, 1);
-                  commitState({ players: newPlayers, bases: newBases }, 'card');
+                  updateGameState({ players: newPlayers }, 'card');
                   return;
               }
 
@@ -642,22 +652,20 @@
               setValidTargets([]);
           };
 
-          // --- 核心：回合控制 ---
           const nextTurn = () => {
             if (isMultiplayer && !isHost) {
                 conn.send({ type: 'REQ_END_TURN' });
                 return;
             }
 
-            if (gameStateRef.current.gameOver) return;
+            if (gameOver) return;
             resetSelection();
             setSelectedCard(null);
             setValidTargets([]);
             setAiAdvice(null);
             if(audioEnabled) playSound('turn_start');
             
-            let currentT = gameStateRef.current.turn;
-            let nextPlayerId = (currentT + 1) % 4;
+            let nextPlayerId = (turn + 1) % 4;
             while (!gameStateRef.current.players[nextPlayerId].isAlive) nextPlayerId = (nextPlayerId + 1) % 4;
             
             const newUnits = gameStateRef.current.units.map(u => {
@@ -666,30 +674,15 @@
                 return { ...u, hasActed: false, buffs: newBuffs };
             });
             
-            let updates = { units: newUnits, turn: nextPlayerId };
-
-            if (nextPlayerId === 0) { 
-                updates.round = gameStateRef.current.round + 1;
-                spawnRandomItem(); // 這裡 spawn 會更新 items，但還沒 commit
-                updates.items = gameStateRef.current.items; // 抓取 spawn 更新後的 items
-            }
+            updateGameState({ units: newUnits }); 
+            setTurn(nextPlayerId);
             
-            // 先在 Ref 中處理復活 (修改 current)
-            checkRespawns(nextPlayerId);
-            // 將復活的結果 (current.units) 合併到 updates
-            updates.units = gameStateRef.current.units; 
-            updates.deadUnits = gameStateRef.current.deadUnits;
-
-            // 原子提交所有變更：回合、單位重置、復活
-            commitState(updates, 'turn_start');
-
-            // --- 解決 BOT 卡住問題：主動觸發 ---
-            // 直接檢查最新的 nextPlayerId 是否為 BOT
-            const nextPlayer = gameStateRef.current.players[nextPlayerId];
-            if ((isMultiplayer && isHost && (nextPlayerId === 2 || nextPlayerId === 3)) || (!isMultiplayer && nextPlayer.isBot)) {
-                // 傳入明確的 botId，避免讀取到舊狀態
-                setTimeout(() => runBotTurn(nextPlayerId), 500); 
+            if (nextPlayerId === 0) { 
+                setRound(round + 1); 
+                spawnRandomItem(); 
             }
+            checkRespawns(nextPlayerId);
+            updateGameState({ turn: nextPlayerId }, 'turn_start');
           };
 
           const spawnRandomItem = () => {
@@ -704,31 +697,25 @@
                     attempts++;
                 } while (!valid && attempts < 10);
                 if (valid) {
-                    gameStateRef.current.items = [...gameStateRef.current.items, { x, y, type: 'CARD' }];
+                    updateGameState({ items: [...items, { x, y, type: 'CARD' }] });
                     addLog('⚡ 偵測到新型晶片訊號！');
                 }
               }
           };
 
-          const runBotTurn = async (botId) => {
-            // 安全檢查：確保傳入的 ID 真的是當前回合 (防止多次觸發)
-            if (gameStateRef.current.turn !== botId || gameStateRef.current.gameOver) return;
-
+          const runBotTurn = async () => {
             setIsBotThinking(true);
-            
+            const botId = turn; 
+            await sleep(600);
             const myUnitIds = gameStateRef.current.units.filter(u => u.owner === botId).map(u => u.id);
             for (const unitId of myUnitIds) {
-              // 每次行動前重新讀取 Ref，確保單位沒死
               const currentUnit = gameStateRef.current.units.find(u => u.id === unitId);
               if (!currentUnit) continue; 
-              
               setSelectedUnitId(currentUnit.id); 
               await sleep(300);
-              
               const { units: currUnits, bases: currBases, items: currItems, gridSize: size } = gameStateRef.current;
               let actionTaken = false;
               
-              // 攻擊邏輯
               if (currentUnit.type === 'WARRIOR' || currentUnit.type === 'ASSASSIN') {
                   const adjacents = [{x:currentUnit.x+1,y:currentUnit.y},{x:currentUnit.x-1,y:currentUnit.y},{x:currentUnit.x,y:currentUnit.y+1},{x:currentUnit.x,y:currentUnit.y-1}];
                   let attackTarget = null, targetType = null;
@@ -738,14 +725,8 @@
                       const enemy = currUnits.find(u => u.x === pos.x && u.y === pos.y && u.owner !== botId && !u.buffs?.stealth);
                       if (enemy) { attackTarget = enemy; targetType = 'UNIT'; break; }
                   }
-                  if (attackTarget) { 
-                      await performAttack(currentUnit.id, attackTarget.id, targetType); 
-                      actionTaken = true; 
-                      await sleep(300); 
-                  }
+                  if (attackTarget) { await performAttack(currentUnit.id, attackTarget.id, targetType); actionTaken = true; await sleep(300); }
               }
-              
-              // 移動邏輯
               if (!actionTaken) {
                   let target = null;
                   if (currentUnit.type === 'SCOUT' && currItems.length > 0) target = currItems.reduce((n, i) => (!n || getDistance(currentUnit, i) < getDistance(currentUnit, n)) ? i : n, null);
@@ -773,8 +754,6 @@
               setSelectedUnitId(null);
             }
             setIsBotThinking(false);
-            
-            // BOT 回合結束，呼叫下一回合
             nextTurn();
           };
 
@@ -852,13 +831,6 @@
             const advice = await callGemini(`戰棋軍師，我方(紅)剩 ${units.filter(u=>u.owner===0).length} 單位，給個簡短戰術建議(20字內繁中)`);
             setAiAdvice(advice || "通訊中斷");
             setIsAiAdvising(false);
-          };
-
-          const requestSyncManually = () => {
-              if (conn) {
-                  addLog('強制請求同步...', 'system');
-                  conn.send({ type: 'REQ_FULL_SYNC' });
-              }
           };
 
           const renderCell = (x, y) => {
@@ -994,6 +966,44 @@
                                               <div className="bg-slate-800/60 p-4 rounded-lg border border-slate-700"><div className="text-yellow-400 font-bold mb-1">👑 勝利條件</div>成為戰場上 <span className="text-white">唯一存活</span> 的陣營。</div>
                                               <div className="bg-slate-800/60 p-4 rounded-lg border border-slate-700"><div className="text-red-400 font-bold mb-1">💀 失敗條件</div>我方 <span className="text-white">大本營 HP 歸零</span>。</div>
                                           </div>
+                                          <div className="mt-4 p-4 bg-cyan-900/20 border border-cyan-800 rounded-lg">
+                                              <h4 className="font-bold text-cyan-400 flex gap-2 items-center"><Wifi size={16}/> 連線模式說明</h4>
+                                              <ul className="text-sm space-y-1 mt-2 text-slate-300">
+                                                  <li>• <span className="text-white font-bold">Host (房主)</span>：扮演紅隊，負責運算綠隊與黃隊 AI。</li>
+                                                  <li>• <span className="text-white font-bold">Client (客端)</span>：扮演藍隊。</li>
+                                                  <li>• 若房主選擇「刺客模式」，客端加入時將自動切換為刺客模式介面。</li>
+                                              </ul>
+                                          </div>
+                                      </div>
+                                  </section>
+                                  <section>
+                                      <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-3"><span className="p-2 bg-blue-500/20 rounded-lg text-blue-400"><Sword size={24}/></span> 2. 戰鬥單位數據庫</h3>
+                                      <div className="grid lg:grid-cols-3 gap-6">
+                                          <div className="bg-slate-800/50 p-5 rounded-xl border border-slate-700 hover:border-red-500/50 transition-colors">
+                                              <div className="flex items-center gap-3 mb-4 border-b border-slate-700 pb-3"><div className="p-2 bg-red-900/50 rounded text-red-400"><Sword size={24}/></div><div><div className="font-black text-xl text-white">戰士 (Warrior)</div><div className="text-xs text-slate-500">主力輸出 / 坦克</div></div></div>
+                                              <ul className="text-sm space-y-2"><li>❤️ 生命值：<span className="text-green-400 font-mono text-lg">6</span></li><li>⚔️ 攻擊力：<span className="text-red-400 font-mono text-lg">3</span></li><li>🦶 移動力：<span className="text-blue-400 font-mono text-lg">2 格</span></li></ul>
+                                          </div>
+                                          <div className="bg-slate-800/50 p-5 rounded-xl border border-slate-700 hover:border-blue-500/50 transition-colors">
+                                              <div className="flex items-center gap-3 mb-4 border-b border-slate-700 pb-3"><div className="p-2 bg-blue-900/50 rounded text-blue-400"><Eye size={24}/></div><div><div className="font-black text-xl text-white">偵查兵 (Scout)</div><div className="text-xs text-slate-500">資源收集 / 快速</div></div></div>
+                                              <ul className="text-sm space-y-2"><li>❤️ 生命值：<span className="text-green-400 font-mono text-lg">3</span></li><li>⚔️ 攻擊力：<span className="text-slate-500 font-mono">無法攻擊</span></li><li>🦶 移動力：<span className="text-blue-400 font-mono text-lg">2 格</span></li><li className="text-cyan-300 mt-2 text-xs">用途：佔領機遇卡 <Zap size={10} className="inline"/>。</li></ul>
+                                          </div>
+                                          <div className="bg-slate-800/50 p-5 rounded-xl border border-slate-700 hover:border-purple-500/50 transition-colors relative overflow-hidden">
+                                              <div className="absolute top-0 right-0 bg-purple-600 text-white text-[10px] px-2 py-1 rounded-bl font-bold">刺客模式限定</div>
+                                              <div className="flex items-center gap-3 mb-4 border-b border-slate-700 pb-3"><div className="p-2 bg-purple-900/50 rounded text-purple-400"><Ghost size={24}/></div><div><div className="font-black text-xl text-white">刺客 (Assassin)</div><div className="text-xs text-slate-500">高機動 / 奇襲</div></div></div>
+                                              <ul className="text-sm space-y-2"><li>❤️ 生命值：<span className="text-green-400 font-mono text-lg">4</span></li><li>⚔️ 攻擊力：<span className="text-red-400 font-mono text-lg">2</span></li><li>🦶 移動力：<span className="text-blue-400 font-mono text-lg">3 格</span></li></ul>
+                                          </div>
+                                      </div>
+                                  </section>
+                                  <section>
+                                      <h3 className="text-2xl font-bold text-white mb-6 flex items-center gap-3"><span className="p-2 bg-yellow-500/20 rounded-lg text-yellow-400"><Zap size={24}/></span> 3. 戰術晶片 (機遇卡)</h3>
+                                      <p className="mb-4 text-slate-400">偵查兵踩到閃電格 <Zap size={14} className="inline text-yellow-400"/> 可獲得，開局隨機 3 張。</p>
+                                      <div className="grid md:grid-cols-2 gap-4">
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700"><div className="p-2 bg-green-900/50 text-green-400 rounded shrink-0"><Heart size={20}/></div><div><div className="font-bold text-green-300">急救包</div><div className="text-xs text-slate-400">恢復單位 3 HP。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700"><div className="p-2 bg-red-900/50 text-red-400 rounded shrink-0"><Target size={20}/></div><div><div className="font-bold text-red-300">狙擊</div><div className="text-xs text-slate-400">全圖攻擊敵方單位造成 2 傷害。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700"><div className="p-2 bg-blue-900/50 text-blue-400 rounded shrink-0"><Shield size={20}/></div><div><div className="font-bold text-blue-300">基地護盾</div><div className="text-xs text-slate-400">修復基地 5 HP (上限15)。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700"><div className="p-2 bg-orange-900/50 text-orange-400 rounded shrink-0"><Flame size={20}/></div><div><div className="font-bold text-orange-300">狂暴針劑</div><div className="text-xs text-slate-400">戰士下一次攻擊 2倍傷害。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-slate-700"><div className="p-2 bg-cyan-900/50 text-cyan-400 rounded shrink-0"><Plus size={20}/></div><div><div className="font-bold text-cyan-300">動力裝甲</div><div className="text-xs text-slate-400">戰士永久 +4 HP上限。</div></div></div>
+                                          <div className="flex items-start gap-3 p-4 bg-slate-800/60 rounded-lg border border-purple-900/50"><div className="p-2 bg-purple-900/50 text-purple-400 rounded shrink-0"><VenetianMask size={20}/></div><div><div className="font-bold text-purple-300">隱形披風</div><div className="text-xs text-slate-400">刺客隱身 1 回合。</div></div></div>
                                       </div>
                                   </section>
                               </div>
@@ -1021,7 +1031,6 @@
                    </div>
                 </div>
                 <div className="flex gap-2">
-                    {isMultiplayer && !isHost && <button onClick={requestSyncManually} className="px-3 py-1.5 rounded bg-slate-800 text-slate-400 hover:text-white text-xs border border-slate-700" title="強制同步"><RefreshCw size={14}/></button>}
                     <button onClick={nextTurn} disabled={!canControl()} className={`px-4 py-1.5 rounded text-sm font-bold flex items-center gap-2 transition-all ${!canControl() ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-cyan-600 hover:bg-cyan-500'}`}>結束回合 <Footprints size={14}/></button>
                 </div>
               </header>
@@ -1029,8 +1038,8 @@
               <main className="flex-1 flex flex-col md:flex-row relative">
                 <div className="flex-1 flex items-center justify-center p-4 bg-black">
                    <div className="relative">
-                     {/* 連線同步中的遮罩：如果 units 為空，顯示載入中 */}
-                     {isMultiplayer && !isHost && units.length === 0 && <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/90 text-white gap-4"><RefreshCw className="animate-spin text-cyan-400" size={40}/><div className="text-xl font-bold">正在同步戰場數據...</div><button onClick={requestSyncManually} className="px-4 py-2 bg-slate-800 rounded text-sm hover:bg-slate-700">若卡住請點此刷新</button></div>}
+                     {/* 連線同步中的遮罩 */}
+                     {isMultiplayer && !isHost && units.length === 0 && <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/90 text-white gap-4"><RefreshCw className="animate-spin text-cyan-400" size={40}/><div className="text-xl font-bold">正在同步戰場數據...</div><div className="text-slate-500 text-sm">請稍候，若過久無回應請重整</div></div>}
                      
                      <div className="grid gap-1 bg-slate-900/90 p-2 rounded-lg border border-slate-700 shadow-2xl relative z-10" style={{ gridTemplateColumns: `repeat(${gridSize}, minmax(30px, 1fr))`, width: 'min(90vw, 85vh)', maxWidth: '650px' }}>
                        {Array.from({ length: gridSize }).map((_, y) => Array.from({ length: gridSize }).map((_, x) => renderCell(x, y)))}
@@ -1065,15 +1074,6 @@
                     </div>
 
                     <div className="p-4 space-y-4">
-                        <div className="bg-slate-950 p-2 rounded border border-slate-800 h-32 overflow-y-auto text-xs font-mono space-y-1 scrollbar-thin">
-                            {logs.map((log, i) => (
-                                <div key={i} className={`${log.type === 'error' ? 'text-red-400' : log.type === 'win' ? 'text-yellow-400 font-bold' : 'text-slate-400'}`}>
-                                    {log.type === 'system' && <span className="text-cyan-600 mr-2">➜</span>}
-                                    {log.text}
-                                </div>
-                            ))}
-                        </div>
-
                         {selectedUnit ? (
                             <div className="bg-slate-800/80 p-4 rounded-xl border border-slate-700 animate-in zoom-in-95">
                                 <div className="flex justify-between items-center mb-3">
